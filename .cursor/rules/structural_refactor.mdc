@@ -73,38 +73,44 @@ rocks_extension/opal/pre_etl/
 # BEFORE (scattered reads)
 def main(self):
     buffer_days = 7
-    orders = self.read_input("orders")
+    orders = input_data["orders"]
     # ... some processing ...
-    products = self.read_input("products")  # Read buried in logic
+    products = input_data["products"]  # Read buried in logic
     # ... more processing ...
 
-# AFTER (reads at top)
+# AFTER (reads at top; config/variables go close to use per rule 3)
 def main(self):
     # Data Ingestion
-    orders = self.read_input("orders")
-    products = self.read_input("products")
+    orders = input_data["orders"]
+    products = input_data["products"]
     
-    # Configuration
-    buffer_days = 7
-    
-    # Processing logic...
+    # Processing logic... (define static variables just before they're used)
 ```
 
-### 3. Variable Declaration
+### 3. Variable Declaration - Define Close to Use
 
-**Static variables (configuration values) must be defined immediately after data read sections.**
+**Define static variables (configuration values) just before they are used.**
+
+Same principle as DataFrames: reduce cognitive load by keeping definitions near their use.
 
 ```python
+# BAD - all config at top, used later
 def main(self):
-    # Data Ingestion
     orders = self.read_input("orders")
-    
-    # Configuration
     buffer_day_parameter = 7
     lookback_days = 30
     status_active = 1
-    
-    # Processing logic...
+    # ... many lines ...
+    orders = orders.filter(F.datediff("date", F.current_date()) < buffer_day_parameter)
+
+# GOOD - define just before use
+def main(self):
+    orders = self.read_input("orders")
+    # ... processing ...
+    buffer_day_parameter = 7
+    orders = orders.filter(F.datediff("date", F.current_date()) < buffer_day_parameter)
+    lookback_days = 30
+    orders = orders.withColumn("lookback", F.lit(lookback_days))
 ```
 
 ### 4. Dead Code Removal
