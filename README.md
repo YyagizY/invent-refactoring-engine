@@ -175,24 +175,3 @@ Style: [Invent Analytics PySpark Style Guide](https://github.com/inventanalytics
 3. Reinstall: `./.invent-refactoring-engine/install.sh`
 
 ---
-
-## Deploying This Repo to GitHub
-
-From this project root:
-
-```bash
-git init
-git add .
-git commit -m "Initial commit: Phase A structural refactoring rule and docs"
-git branch -M main
-git remote add origin https://github.com/YyagizY/invent-refactoring-engine.git
-git push -u origin main
-```
-
-Create the repo on GitHub first at [github.com/new](https://github.com/new) (name: `invent-refactoring-engine`, leave empty).
-
----
-
-## License
-
-Proprietary - Invent Analytics
