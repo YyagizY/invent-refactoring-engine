@@ -61,6 +61,8 @@ rocks_extension/opal/pre_etl/
 - All refactoring is structural and stylistic only; the output table must be identical so that Phase C validation can compare legacy vs refactored outputs.
 - If any transformation would change the output, do not apply it.
 
+**Comments:** Do not add new comments. Keep existing comments with their code when reordering; do not modify, remove, or rewrite them. Comment and documentation changes are for Phase B (contextual_refactor).
+
 ### 1. Scope Limitation
 
 **Only modify the `main` method** of the pre_etl script. Do not modify imports, class definitions, or helper methods unless they contain dead code.
@@ -73,38 +75,44 @@ rocks_extension/opal/pre_etl/
 # BEFORE (scattered reads)
 def main(self):
     buffer_days = 7
-    orders = self.read_input("orders")
+    orders = input_data["orders"]
     # ... some processing ...
-    products = self.read_input("products")  # Read buried in logic
+    products = input_data["products"]  # Read buried in logic
     # ... more processing ...
 
-# AFTER (reads at top)
+# AFTER (reads at top; config/variables go close to use per rule 3)
 def main(self):
     # Data Ingestion
-    orders = self.read_input("orders")
-    products = self.read_input("products")
+    orders = input_data["orders"]
+    products = input_data["products"]
     
-    # Configuration
-    buffer_days = 7
-    
-    # Processing logic...
+    # Processing logic... (define static variables just before they're used)
 ```
 
-### 3. Variable Declaration
+### 3. Variable Declaration - Define Close to Use
 
-**Static variables (configuration values) must be defined immediately after data read sections.**
+**Define static variables (configuration values) just before they are used.**
+
+Same principle as DataFrames: reduce cognitive load by keeping definitions near their use.
 
 ```python
+# BAD - all config at top, used later
 def main(self):
-    # Data Ingestion
     orders = self.read_input("orders")
-    
-    # Configuration
     buffer_day_parameter = 7
     lookback_days = 30
     status_active = 1
-    
-    # Processing logic...
+    # ... many lines ...
+    orders = orders.filter(F.datediff("date", F.current_date()) < buffer_day_parameter)
+
+# GOOD - define just before use
+def main(self):
+    orders = self.read_input("orders")
+    # ... processing ...
+    buffer_day_parameter = 7
+    orders = orders.filter(F.datediff("date", F.current_date()) < buffer_day_parameter)
+    lookback_days = 30
+    orders = orders.withColumn("lookback", F.lit(lookback_days))
 ```
 
 ### 4. Dead Code Removal
@@ -223,7 +231,7 @@ result = orders.join(products, on="product_id", how="left")
 
 This reduces cognitive load - the reader doesn't need to scroll back and forth to understand what a DataFrame contains.
 
-**IMPORTANT: When reordering code blocks, keep existing comments with their associated code.** Do not modify, remove, or rewrite comments - they move together with the code they describe.
+**IMPORTANT: Comments.** When reordering code blocks, keep existing comments with their associated code - do not modify, remove, or rewrite them. **Do not add any new comments.** Comment changes and business documentation are handled in Phase B (contextual_refactor).
 
 ```python
 # BAD - df created at start, used at end (high cognitive load)
@@ -327,6 +335,17 @@ aircraft = aircraft.select(
 )
 ```
 
+**Combine consecutive select + withColumn:** When a select is immediately followed by a single withColumn (e.g. literal or simple expression), do it in one select using alias:
+
+```python
+# BAD - two steps
+df = df.select("col1", "col2", "col3")
+df = df.withColumn("col4", F.lit(5))
+
+# GOOD - one step
+df = df.select("col1", "col2", "col3", F.lit(5).alias("col4"))
+```
+
 ### Empty Columns
 
 Always use `F.lit(None)` for empty columns:
@@ -342,7 +361,19 @@ df = df.withColumn('foo', F.lit(None))
 
 ### Joins
 
-Always specify `how=` explicitly. Avoid right joins:
+Always specify `how=` explicitly.
+
+**Format joins on multiple lines:** Put the right-hand DataFrame and join condition on a new line:
+
+```python
+# BAD - join on one line
+alloc_items = alloc_items.join(alloc_to_replen, on="product_code", how="left_anti")
+
+# GOOD - join arguments on new line
+alloc_items = alloc_items.join(
+    alloc_to_replen, on="product_code", how="left_anti"
+)
+```
 
 ```python
 # BAD
@@ -351,7 +382,9 @@ flights = aircraft.join(flights, 'aircraft_id', how='right')
 
 # GOOD
 flights = flights.join(aircraft, 'aircraft_id', how='inner')
-flights = flights.join(aircraft, 'aircraft_id', how='left')
+flights = flights.join(
+    aircraft, 'aircraft_id', how='left'
+)
 ```
 
 ### Window Functions
