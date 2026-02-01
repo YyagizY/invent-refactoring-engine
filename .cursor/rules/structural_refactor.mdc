@@ -335,6 +335,17 @@ aircraft = aircraft.select(
 )
 ```
 
+**Combine consecutive select + withColumn:** When a select is immediately followed by a single withColumn (e.g. literal or simple expression), do it in one select using alias:
+
+```python
+# BAD - two steps
+df = df.select("col1", "col2", "col3")
+df = df.withColumn("col4", F.lit(5))
+
+# GOOD - one step
+df = df.select("col1", "col2", "col3", F.lit(5).alias("col4"))
+```
+
 ### Empty Columns
 
 Always use `F.lit(None)` for empty columns:
