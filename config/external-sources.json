@@ -1,0 +1,20 @@
+{
+  "phase_a": {
+    "style_guides": {
+      "invent_pyspark": "https://github.com/inventanalytics/pyspark-style-guide"
+    }
+  },
+  "phase_b": {
+    "confluence": {
+      "base_url": null,
+      "api_token_env": "CONFLUENCE_API_TOKEN"
+    },
+    "github": {
+      "repo": null,
+      "requirements_path": null
+    }
+  },
+  "phase_c": {
+    "spark_config": null
+  }
+}

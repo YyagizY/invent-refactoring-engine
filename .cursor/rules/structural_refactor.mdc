@@ -1,0 +1,483 @@
+---
+description: Phase A - Structural Refactoring. REFACTORED MAIN MUST RETURN THE SAME OUTPUT TABLE AS LEGACY (same DataFrame, schema, content). Structural and stylistic changes only.
+globs: ["**/pre_etl*.py", "**/*_pre_etl.py"]
+alwaysApply: false
+---
+
+# Phase A: Structural Refactoring
+
+**CRITICAL: The refactored `main` method must create and return the same output table as the legacy script.** Same DataFrame, same schema, same logical content. Refactoring is structural and stylistic only; do not change output. If a transformation would alter the output, do not apply it. Phase C validation depends on this.
+
+You are a PySpark refactoring expert. When the user types a command starting with `structural_refactor`, you will refactor the specified PySpark pre-ETL script following strict transformation rules.
+
+## Command Format
+
+```
+structural_refactor <path_to_script>
+```
+
+Example:
+```
+structural_refactor rocks_extension/opal/pre_etl/pre_etl_scope.py
+```
+
+## Execution Steps
+
+When you receive a `structural_refactor` command:
+
+1. **Read the source file** at the specified path
+2. **Create the legacy directory** if it doesn't exist: `<parent_dir>/legacy/`
+3. **Move the original file** to `<parent_dir>/legacy/<filename>_legacy.py`
+4. **Apply all transformation rules** (see below)
+5. **Write the refactored version** to the original path
+6. **Report the changes** made
+
+### File Output Example
+
+For `structural_refactor rocks_extension/opal/pre_etl/pre_etl_scope.py`:
+
+```
+BEFORE:
+rocks_extension/opal/pre_etl/
+└── pre_etl_scope.py
+
+AFTER:
+rocks_extension/opal/pre_etl/
+├── pre_etl_scope.py                    # Refactored version
+└── legacy/
+    └── pre_etl_scope_legacy.py         # Original archived
+```
+
+---
+
+## Transformation Rules
+
+### Invariant: Same Output Table
+
+**The refactored `main` method must produce the same output table as the legacy script.**
+
+- The **return value** of `main` must be the same DataFrame (same schema, same logical content).
+- Do not change the final DataFrame name, column set, column order, or transformation logic that affects the output.
+- All refactoring is structural and stylistic only; the output table must be identical so that Phase C validation can compare legacy vs refactored outputs.
+- If any transformation would change the output, do not apply it.
+
+### 1. Scope Limitation
+
+**Only modify the `main` method** of the pre_etl script. Do not modify imports, class definitions, or helper methods unless they contain dead code.
+
+### 2. Data Ingestion Ordering
+
+**Move all input data reads to the very beginning of the `main` method.**
+
+```python
+# BEFORE (scattered reads)
+def main(self):
+    buffer_days = 7
+    orders = self.read_input("orders")
+    # ... some processing ...
+    products = self.read_input("products")  # Read buried in logic
+    # ... more processing ...
+
+# AFTER (reads at top)
+def main(self):
+    # Data Ingestion
+    orders = self.read_input("orders")
+    products = self.read_input("products")
+    
+    # Configuration
+    buffer_days = 7
+    
+    # Processing logic...
+```
+
+### 3. Variable Declaration
+
+**Static variables (configuration values) must be defined immediately after data read sections.**
+
+```python
+def main(self):
+    # Data Ingestion
+    orders = self.read_input("orders")
+    
+    # Configuration
+    buffer_day_parameter = 7
+    lookback_days = 30
+    status_active = 1
+    
+    # Processing logic...
+```
+
+### 4. Dead Code Removal
+
+**Remove code blocks that generate DataFrames not used in the final output.**
+
+Perform dataflow analysis:
+1. Identify the final output (typically `return` statement or last DataFrame assignment)
+2. Trace backward to find all DataFrames contributing to the output
+3. Remove any DataFrame definitions not in the dependency chain
+
+```python
+# BEFORE (dead code present)
+def main(self):
+    orders = self.read_input("orders")
+    products = self.read_input("products")
+    
+    # This is dead code - season_list and replen_items_a are never used
+    season_list = [1, 2, 3, 4]
+    replen_items_a = orders.filter(F.col("season").isin(season_list))
+    
+    # Only this contributes to output
+    result = orders.join(products, "product_id")
+    return result
+
+# AFTER (dead code removed)
+def main(self):
+    orders = self.read_input("orders")
+    products = self.read_input("products")
+    
+    result = orders.join(products, "product_id")
+    return result
+```
+
+### 5. Redundancy Pruning
+
+**Remove columns generated but not selected in the final statement**, unless used in intermediate filtering or joins.
+
+```python
+# BEFORE (unused column + chained)
+replenishment_scope = (
+    replenishment_scope
+    .withColumn("start_date", F.lit(self.run_date))
+    .withColumn("solution_id", F.lit(21))
+    .withColumn("location_type", F.lit(0))  # Never used
+)
+replenishment_scope = replenishment_scope.select("start_date", "solution_id")
+
+# AFTER (unused column removed + chains broken)
+replenishment_scope = replenishment_scope.withColumn("start_date", F.lit(self.run_date))
+replenishment_scope = replenishment_scope.withColumn("solution_id", F.lit(21))
+replenishment_scope = replenishment_scope.select("start_date", "solution_id")
+```
+
+### 6. Alias Cleanup
+
+**Remove unnecessary aliases in joins. Use direct column references.**
+
+Only preserve aliases when:
+- Self-joins (same table joined to itself)
+- Column name collisions that cannot be resolved otherwise
+
+```python
+# BEFORE (unnecessary aliases)
+supersede = supersede_product.alias("sup").join(
+    product.alias("pm1"),
+    supersede_product["product_id"] == product["product_id"],
+    "left"
+).select(F.col("sup.family_id"), F.col("pm1.product_code"))
+
+# AFTER (simplified)
+supersede = supersede_product.join(product, on="product_id", how="left")
+supersede = supersede.select("family_id", "product_code")
+```
+
+### 7. Broadcast Preservation
+
+**Keep existing broadcast hints. Do not introduce new broadcasts.**
+
+Assume the original developer optimized for data size. Preserve their broadcast decisions.
+
+```python
+# Keep existing broadcast - do not remove
+orders = orders.join(F.broadcast(small_lookup), on="key", how="left")
+```
+
+### 8. Visual Formatting
+
+**Insert blank lines between distinct logical operations.** Operations on the same DataFrame stay together; insert blank lines when switching to a different DataFrame or new logical block.
+
+```python
+# BEFORE (no visual separation between different DataFrames)
+orders = orders.join(products, on="product_id", how="left")
+orders = orders.withColumnRenamed("name", "product_name")
+orders = orders.filter(F.col("status") == 1)
+products = products.filter(F.col("active") == True)
+products = products.select("product_id", "product_name")
+result = orders.join(products, on="product_id", how="left")
+
+# AFTER (blank lines between different DataFrame operations)
+orders = orders.join(products, on="product_id", how="left")
+orders = orders.withColumnRenamed("name", "product_name")
+orders = orders.filter(F.col("status") == 1)
+
+products = products.filter(F.col("active") == True)
+products = products.select("product_id", "product_name")
+
+result = orders.join(products, on="product_id", how="left")
+```
+
+**Rule:** Operations on the same DataFrame stay together. Insert blank lines when switching to a different DataFrame or starting a new logical block.
+
+### 9. Linearity Constraint - Define Close to Use
+
+**DataFrames should be created/transformed just before they are used.**
+
+This reduces cognitive load - the reader doesn't need to scroll back and forth to understand what a DataFrame contains.
+
+**IMPORTANT: When reordering code blocks, keep existing comments with their associated code.** Do not modify, remove, or rewrite comments - they move together with the code they describe.
+
+```python
+# BAD - df created at start, used at end (high cognitive load)
+def main(self):
+    orders = self.read_input("orders")
+    products = self.read_input("products")
+    categories = self.read_input("categories")
+    
+    # Product lookup created here...
+    product_lookup = products.select("product_id", "product_name", "category_id")
+    
+    # ... many lines of order processing ...
+    orders = orders.filter(F.col("status") == 1)
+    orders = orders.withColumn("processed_date", F.current_date())
+    # ... more processing ...
+    
+    # ... product_lookup used 50 lines later - reader must scroll back!
+    orders = orders.join(product_lookup, on="product_id", how="left")
+    
+    return orders
+
+# GOOD - create DataFrame just before it's used (comments stay with code)
+def main(self):
+    orders = self.read_input("orders")
+    products = self.read_input("products")
+    
+    # Order processing
+    orders = orders.filter(F.col("status") == 1)
+    orders = orders.withColumn("processed_date", F.current_date())
+    
+    # Product lookup created here... (comment moved with the code block)
+    product_lookup = products.select("product_id", "product_name", "category_id")
+    orders = orders.join(product_lookup, on="product_id", how="left")
+    
+    return orders
+```
+
+**Exception:** If reordering would change the output (e.g., a filter depends on a column added later), preserve the original order to guarantee identical output. Flag these cases for human review.
+
+---
+
+## Invent Analytics PySpark Style Guide Compliance
+
+Apply these style rules from the [Invent Analytics PySpark Style Guide](https://github.com/inventanalytics/pyspark-style-guide):
+
+### Column Selection
+
+Prefer implicit column selection using `F.col()` or string references:
+
+```python
+# BAD
+df = df.select(F.lower(df.colA), F.upper(df.colB))
+
+# GOOD
+df = df.select(F.lower(F.col('colA')), F.upper(F.col('colB')))
+
+# BETTER (Spark 3.0+)
+df = df.select(F.lower('colA'), F.upper('colB'))
+```
+
+### Complex Logical Operations
+
+Refactor complex logic into named variables. Maximum 3 expressions in a single logical block:
+
+```python
+# BAD
+F.when((F.col('status') == 'Delivered') | (((F.datediff('date', 'current') < 0) & 
+       ((F.col('reg') != '') | (F.col('op') != '')))), 'Active')
+
+# GOOD
+is_delivered = (F.col('status') == 'Delivered')
+date_passed = (F.datediff('date', 'current') < 0)
+has_registration = (F.col('reg') != '')
+has_operator = (F.col('op') != '')
+is_active = (has_registration | has_operator)
+
+F.when(is_delivered | (date_passed & is_active), 'Active')
+```
+
+### Select Statements
+
+Use select to specify schema contracts. Keep simple - one function per column max:
+
+```python
+# BAD - mixed operations
+aircraft = aircraft.select(
+    'id',
+    F.col('reg').alias('registration'),
+    F.avg('staleness').alias('avg_staleness'),
+    'type',
+    F.col('seats').cast('long'),
+)
+
+# GOOD - grouped by operation type
+aircraft = aircraft.select(
+    'id',
+    'type',
+    F.col('reg').alias('registration'),
+    F.col('seats').cast('long'),
+    F.avg('staleness').alias('avg_staleness'),
+)
+```
+
+### Empty Columns
+
+Always use `F.lit(None)` for empty columns:
+
+```python
+# BAD
+df = df.withColumn('foo', F.lit(''))
+df = df.withColumn('foo', F.lit('NA'))
+
+# GOOD
+df = df.withColumn('foo', F.lit(None))
+```
+
+### Joins
+
+Always specify `how=` explicitly. Avoid right joins:
+
+```python
+# BAD
+flights = flights.join(aircraft, 'aircraft_id')
+flights = aircraft.join(flights, 'aircraft_id', how='right')
+
+# GOOD
+flights = flights.join(aircraft, 'aircraft_id', how='inner')
+flights = flights.join(aircraft, 'aircraft_id', how='left')
+```
+
+### Window Functions
+
+Always specify explicit frames:
+
+```python
+# BAD
+w = W.partitionBy('key').orderBy('num')
+
+# GOOD
+w = W.partitionBy('key').orderBy('num').rowsBetween(W.unboundedPreceding, W.unboundedFollowing)
+```
+
+### Chaining - ALWAYS BREAK
+
+**Break ALL chained expressions.** Each operation should be on its own line with explicit assignment. This is a strict rule that overrides any other style guide recommendations.
+
+```python
+# BAD - any chaining
+df = (
+    df
+    .select('a', 'b', 'c', 'key')
+    .filter(F.col('a') == 'value')
+)
+
+# BAD - even short chains
+df = df.filter(F.col('a') == 'value').select('a', 'b')
+
+# GOOD - every operation on its own line
+df = df.select('a', 'b', 'c', 'key')
+df = df.filter(F.col('a') == 'value')
+df = df.withColumn('ratio', F.col('b') / F.col('c'))
+df = df.join(df2, 'key', how='inner')
+df = df.join(df3, 'key', how='left')
+df = df.drop('c')
+```
+
+This makes debugging easier, as each line can be commented out or inspected individually.
+
+### Multi-line Expressions
+
+Since we break all chains, multi-line chaining is not applicable. Each operation is a single line:
+
+```python
+# BAD - multi-line chain
+df = (
+    df
+    .filter(F.col('event') == 'executing')
+    .filter(F.col('has_tests') == True)
+    .drop('has_tests')
+)
+
+# GOOD - separate lines
+df = df.filter(F.col('event') == 'executing')
+df = df.filter(F.col('has_tests') == True)
+df = df.drop('has_tests')
+```
+
+For complex column expressions that span multiple lines, use parentheses:
+
+```python
+# GOOD - complex expression wrapped
+df = df.withColumn(
+    'days_open',
+    (F.coalesce(F.unix_timestamp('closed_at'), F.unix_timestamp()) 
+     - F.unix_timestamp('created_at')) / 86400
+)
+```
+
+### Avoid UDFs
+
+Refactor UDF logic to use native PySpark functions whenever possible.
+
+---
+
+## Formatting Rules
+
+### PEP 8 Compliance
+
+- 4-space indentation
+- Maximum line length: 120 characters (PySpark often needs longer lines)
+- Two blank lines before class/function definitions
+- One blank line between method definitions
+- Spaces around operators: `x = 1`, not `x=1`
+
+### Import Organization
+
+```python
+# Standard library
+import os
+from datetime import datetime
+
+# Third-party
+from pyspark.sql import functions as F
+from pyspark.sql import Window as W
+from pyspark.sql import types as T
+
+# Local
+from .base import BasePreETL
+```
+
+---
+
+## Output Report
+
+After refactoring, provide a summary:
+
+```
+## Refactoring Complete
+
+**Files:**
+- Original moved to: `<legacy_path>`
+- Refactored written to: `<original_path>`
+
+**Output Invariant:** The refactored `main` returns the same output table (same DataFrame, schema, and logical content) as the legacy script.
+
+**Changes Applied:**
+- Moved X data reads to top of main()
+- Removed Y unused DataFrame definitions
+- Removed Z unused columns
+- Simplified W join aliases
+- Reordered N code blocks for better linearity
+- Broke all chained expressions
+- Added visual separation between logical blocks
+
+**Review recommended for:**
+- [List any complex transformations that may need human review]
+```
