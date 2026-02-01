@@ -61,6 +61,8 @@ rocks_extension/opal/pre_etl/
 - All refactoring is structural and stylistic only; the output table must be identical so that Phase C validation can compare legacy vs refactored outputs.
 - If any transformation would change the output, do not apply it.
 
+**Comments:** Do not add new comments. Keep existing comments with their code when reordering; do not modify, remove, or rewrite them. Comment and documentation changes are for Phase B (contextual_refactor).
+
 ### 1. Scope Limitation
 
 **Only modify the `main` method** of the pre_etl script. Do not modify imports, class definitions, or helper methods unless they contain dead code.
@@ -229,7 +231,7 @@ result = orders.join(products, on="product_id", how="left")
 
 This reduces cognitive load - the reader doesn't need to scroll back and forth to understand what a DataFrame contains.
 
-**IMPORTANT: When reordering code blocks, keep existing comments with their associated code.** Do not modify, remove, or rewrite comments - they move together with the code they describe.
+**IMPORTANT: Comments.** When reordering code blocks, keep existing comments with their associated code - do not modify, remove, or rewrite them. **Do not add any new comments.** Comment changes and business documentation are handled in Phase B (contextual_refactor).
 
 ```python
 # BAD - df created at start, used at end (high cognitive load)
