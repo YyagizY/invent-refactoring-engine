@@ -350,7 +350,19 @@ df = df.withColumn('foo', F.lit(None))
 
 ### Joins
 
-Always specify `how=` explicitly. Avoid right joins:
+Always specify `how=` explicitly.
+
+**Format joins on multiple lines:** Put the right-hand DataFrame and join condition on a new line:
+
+```python
+# BAD - join on one line
+alloc_items = alloc_items.join(alloc_to_replen, on="product_code", how="left_anti")
+
+# GOOD - join arguments on new line
+alloc_items = alloc_items.join(
+    alloc_to_replen, on="product_code", how="left_anti"
+)
+```
 
 ```python
 # BAD
@@ -359,7 +371,9 @@ flights = aircraft.join(flights, 'aircraft_id', how='right')
 
 # GOOD
 flights = flights.join(aircraft, 'aircraft_id', how='inner')
-flights = flights.join(aircraft, 'aircraft_id', how='left')
+flights = flights.join(
+    aircraft, 'aircraft_id', how='left'
+)
 ```
 
 ### Window Functions
