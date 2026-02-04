@@ -315,8 +315,17 @@ def _fetch_invent_sections(
             log(f"Clone error: {e}")
             return out
         search_root = Path(tmp) / requirements_path.strip("/") if requirements_path else Path(tmp)
-        if not search_root.exists():
-            log(f"requirements_path {requirements_path} not found in clone, using repo root")
+        if not search_root.exists() and requirements_path:
+            # Try last path component (e.g. invent_internal_metadata) in case repo layout differs
+            fallback = requirements_path.strip("/").split("/")[-1]
+            alt = Path(tmp) / fallback
+            if alt.exists():
+                log(f"requirements_path {requirements_path} not found; using {fallback}/")
+                search_root = alt
+            else:
+                log(f"requirements_path {requirements_path} not found in clone, using repo root")
+                search_root = Path(tmp)
+        elif not search_root.exists():
             search_root = Path(tmp)
         for table in tables:
             pattern = f"{table}:"
@@ -342,7 +351,8 @@ def _fetch_invent_sections(
                 if idx != -1:
                     start = content.rfind("\n", 0, idx) + 1
                     rest = content[idx + len(pattern):]
-                    end_match = re.search(r"\n\s*[\w_]+\s*:\s*\n", rest)
+                    # Match next top-level key only (no leading space), so we don't stop at YAML nested keys like "schema:" or "end_date:"
+                    end_match = re.search(r"\n[^\s#][\w_]*\s*:\s*(?:\n|$)", rest, re.MULTILINE)
                     end_idx = idx + len(pattern) + (end_match.start() if end_match else len(rest))
                     block = content[start:end_idx].strip()
                     if block:
