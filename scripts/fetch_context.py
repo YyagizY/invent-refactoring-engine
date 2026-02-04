@@ -9,7 +9,7 @@ Usage (from customer-pipeline project root):
 
 Requires: PyYAML, requests (for Confluence).
 Env: CONFLUENCE_API_TOKEN (email:api_key for Basic auth, or Bearer token).
-     Optional GITHUB_TOKEN for private Invent repo.
+     Optional GITHUB_TOKEN for private Invent repo (or set phase_b.github.token in config).
 """
 from __future__ import annotations
 
@@ -137,10 +137,11 @@ def main() -> int:
     # 6) Optional: Invent repo search for output and input tables
     invent_repo = github_cfg.get("repo")
     requirements_path = github_cfg.get("requirements_path")
+    github_token = github_cfg.get("token") or os.environ.get(github_cfg.get("token_env", "GITHUB_TOKEN"))
     invent_sections = {}
     if invent_repo:
         invent_sections = _fetch_invent_sections(
-            invent_repo, output_table_name, input_table_names, requirements_path
+            invent_repo, output_table_name, input_table_names, requirements_path, github_token
         )
 
     # 7) Build context markdown
@@ -280,11 +281,11 @@ def _fetch_invent_sections(
     output_table: str,
     input_tables: list[str],
     requirements_path: str | None = None,
+    token: str | None = None,
 ) -> dict[str, str]:
-    """Search Invent repo for table sections (table_name:). requirements_path = path inside repo (e.g. docs-data-requirements/invent_internal_metadata) or a file like .../feed.yml. Returns {table_name: content}."""
+    """Search Invent repo for table sections (table_name:). requirements_path = path inside repo. token = from config phase_b.github.token or env (token_env). Returns {table_name: content}."""
     tables = [output_table] + [t for t in input_tables if t != output_table]
     out = {}
-    token = os.environ.get("GITHUB_TOKEN")
     with tempfile.TemporaryDirectory(prefix="invent_repo_") as tmp:
         try:
             if token and "github.com" in repo_url:

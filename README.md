@@ -32,13 +32,15 @@ Edit **config/external-sources.json** in this repo:
 - **phase_b.confluence.base_url:** Confluence base URL (e.g. `https://invent.atlassian.net/wiki`).
 - **phase_b.confluence.clients:** Map `customer_name` (from the pipeline’s `dags/config/main.yaml` → `global_settings/customer_name`) to the Confluence page URL or page id, e.g. `"academyv2": "https://.../pages/123456/..."` or `"academyv2": "123456"`.
 - **phase_b.github.repo:** (Optional) Invent Data Requirements repo URL for table/column definitions.
+- **phase_b.github.token:** (Optional) GitHub token for private Invent repo. If set, used for clone; otherwise the env var named by `token_env` is used.
+- **phase_b.github.token_env:** Env var name for GitHub token when `token` is not set (default: `GITHUB_TOKEN`).
 
 ### Environment
 
 - **CONFLUENCE_API_TOKEN:** Required for Confluence. Use either:
   - Confluence Cloud Basic: `email:api_key` (e.g. from Atlassian API tokens), or
   - Bearer token if your instance supports it.
-- **GITHUB_TOKEN:** Optional; set for private Invent repo clone.
+- **GITHUB_TOKEN:** Used for private Invent repo when `phase_b.github.token` is not set in config.
 
 ### Context fetcher (run by the agent)
 
