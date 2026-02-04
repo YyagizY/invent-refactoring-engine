@@ -387,18 +387,6 @@ flights = flights.join(
 )
 ```
 
-### Window Functions
-
-Always specify explicit frames:
-
-```python
-# BAD
-w = W.partitionBy('key').orderBy('num')
-
-# GOOD
-w = W.partitionBy('key').orderBy('num').rowsBetween(W.unboundedPreceding, W.unboundedFollowing)
-```
-
 ### Chaining - ALWAYS BREAK
 
 **Break ALL chained expressions.** Each operation should be on its own line with explicit assignment. This is a strict rule that overrides any other style guide recommendations.
