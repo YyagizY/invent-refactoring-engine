@@ -10,12 +10,14 @@
       "api_token": null,
       "api_token_env": "CONFLUENCE_API_TOKEN",
       "clients": {
-        "fivebelow": "https://invent.atlassian.net/wiki/spaces/FBR/pages/3898933298/Pre+ETL+Business+Logic"
+        "fivebelow": "https://invent.atlassian.net/wiki/spaces/FBR/pages/5900894244/Pre+ETL+Business+Logic"
       }
     },
     "github": {
       "repo": "https://github.com/inventanalytics/docs-data-requirements",
-      "requirements_path": "docs-data-requirements/invent_internal_metadata"
+      "requirements_path": "docs-data-requirements/invent_internal_metadata",
+      "token": null,
+      "token_env": "GITHUB_TOKEN"
     }
   },
   "phase_c": {
