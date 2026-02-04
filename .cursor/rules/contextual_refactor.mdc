@@ -1,0 +1,94 @@
+---
+description: Phase B - Contextual Refactor. Add semantic comments only. Code must not change; only comments may be changed or added.
+globs: ["**/pre_etl*.py", "**/*_pre_etl.py"]
+alwaysApply: false
+---
+
+# Phase B: Contextual Refactor
+
+**CRITICAL: Code must not change.** The script logic, structure, and every line of code must remain identical. Only comments may be changed or added. Do not add, remove, or modify any executable code.
+
+When the user runs `contextual_refactor path/to/pre_etl_script.py`, you must (1) run the context fetch for that script, (2) read the context file, (3) create the backup folder and move the original, (4) add semantic comments only using the context, and (5) write the commented script to the original path.
+
+## Command Format
+
+```
+contextual_refactor <path_to_script>
+```
+
+Example:
+```
+contextual_refactor rocks_extension/opal/pre_etl/scope.py
+```
+
+## Step 1: Run the context fetch
+
+**You must run the fetch as part of this command.** Do not ask the user to run it separately.
+
+From the **project root** (the customer-pipeline repo root), run:
+
+```
+python .invent-refactoring-engine/scripts/fetch_context.py <script_path>
+```
+
+If the refactoring engine is in a different location, use that path:
+
+```
+python <path_to_engine>/scripts/fetch_context.py <script_path>
+```
+
+This writes the context file to `.cursor/context/<script_stem>.md` (e.g. `.cursor/context/scope.md`). If the script fails (e.g. missing CONFLUENCE_API_TOKEN or config), report the error and stop. Do not add comments from the existing context file if it exists.
+
+## Step 2: Read the context file
+
+Read `.cursor/context/<script_stem>.md`. It contains:
+
+- **Pre-ETL Business Logic** for this script (e.g. scope)
+- **Output table** definition and column explanations
+- **Input tables** definitions and column explanations
+
+Use this to write comments that explain **what** and **why**, not to change any code.
+
+## Step 3: File operations
+
+1. **Create** the folder `contextual_refactor/` in the script's parent directory (e.g. `pre_etl/contextual_refactor/`).
+2. **Move** the original file to `contextual_refactor/<script_stem>_legacy.py` (e.g. `scope_legacy.py` for `scope.py`). Use the stem only: `critical_stock.py` → `critical_stock_legacy.py`.
+3. **Write** the version with semantic comments to the **original** path.
+
+## Step 4: Add comments only
+
+- **Code invariant:** Do not add, remove, or modify any executable line. No new variables, no renames, no logic changes, no formatting changes to code. Only comments may be changed or added.
+- **Semantic comments:** Use the context file to explain business meaning ("what" and "why"). Place comments immediately above the relevant block or line.
+- **Column/table definitions:** Use the overall table definition and column explanations from the context when commenting DataFrame operations and column usage.
+- **Business logic:** Use the Pre-ETL business logic section to comment the high-level steps and decisions in the script.
+- **While reading data, do not add any comment.** Do not add comments above or beside lines that only read data (e.g. `input_data["..."]`, reading DataFrames from input).
+
+If you cannot add a comment without changing code, do not make the change. When in doubt, leave the code exactly as it is and only add or adjust comments.
+
+## Execution summary
+
+When you receive `contextual_refactor path/to/script.py`:
+
+1. Run: `python .invent-refactoring-engine/scripts/fetch_context.py path/to/script.py` (from project root).
+2. Read `.cursor/context/<script_stem>.md`.
+3. Read the source file at the given path.
+4. Create `contextual_refactor/`, move original to `contextual_refactor/<script_stem>_legacy.py`.
+5. Add or update comments only; do not change any code.
+6. Write the commented version to the original script path.
+7. Report what comments were added.
+
+### File output example
+
+For `contextual_refactor rocks_extension/opal/pre_etl/scope.py`:
+
+```
+BEFORE:
+rocks_extension/opal/pre_etl/
+└── scope.py
+
+AFTER:
+rocks_extension/opal/pre_etl/
+├── scope.py                          # Same code + semantic comments
+└── contextual_refactor/
+    └── scope_legacy.py               # Original archived
+```

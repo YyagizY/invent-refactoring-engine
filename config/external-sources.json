@@ -6,12 +6,16 @@
   },
   "phase_b": {
     "confluence": {
-      "base_url": null,
-      "api_token_env": "CONFLUENCE_API_TOKEN"
+      "base_url": "https://invent.atlassian.net/wiki",
+      "api_token": null,
+      "api_token_env": "CONFLUENCE_API_TOKEN",
+      "clients": {
+        "fivebelow": "https://invent.atlassian.net/wiki/spaces/FBR/pages/3898933298/Pre+ETL+Business+Logic"
+      }
     },
     "github": {
-      "repo": null,
-      "requirements_path": null
+      "repo": "https://github.com/inventanalytics/docs-data-requirements",
+      "requirements_path": "docs-data-requirements/invent_internal_metadata"
     }
   },
   "phase_c": {
