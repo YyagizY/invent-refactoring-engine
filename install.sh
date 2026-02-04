@@ -12,11 +12,15 @@ RULES_DEST="$PROJECT_ROOT/.cursor/rules"
 mkdir -p "$RULES_DEST"
 
 if [[ -d "$RULES_SRC" ]]; then
-  cp -f "$RULES_SRC"/structural_refactor.mdc "$RULES_DEST/"
-  echo "Installed: .cursor/rules/structural_refactor.mdc"
+  for rule in structural_refactor.mdc contextual_refactor.mdc; do
+    if [[ -f "$RULES_SRC/$rule" ]]; then
+      cp -f "$RULES_SRC/$rule" "$RULES_DEST/"
+      echo "Installed: .cursor/rules/$rule"
+    fi
+  done
 else
   echo "Error: Rules not found at $RULES_SRC" >&2
   exit 1
 fi
 
-echo "Done. Open your project in Cursor and use: structural_refactor path/to/pre_etl_scope.py"
+echo "Done. Use in Cursor: structural_refactor path/to/script.py | contextual_refactor path/to/script.py"

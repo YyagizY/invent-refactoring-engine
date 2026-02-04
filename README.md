@@ -1,177 +1,84 @@
 # Invent Refactoring Engine
 
-Automated refactoring engine for PySpark pre-ETL scripts, integrated with Cursor IDE.
+Automated refactoring for PySpark pre-ETL scripts, integrated with Cursor IDE.
 
-## Quick Start (3 Steps)
+## Quick Start
 
-### 1. Add Refactoring Engine
+### 1. Add and install
 
 ```bash
-# In your project root
+# From your project root (e.g. customer-pipeline repo)
 git submodule add https://github.com/YyagizY/invent-refactoring-engine.git .invent-refactoring-engine
-```
-
-### 2. Install
-
-```bash
-# From project root (no cd needed!)
 ./.invent-refactoring-engine/install.sh
 ```
 
-If you get "Permission denied", run: `chmod +x .invent-refactoring-engine/install.sh`
+If you get "Permission denied": `chmod +x .invent-refactoring-engine/install.sh`
 
-### 3. Use in Cursor IDE
+### 2. Use in Cursor
 
-Open your project in Cursor and in chat type:
-
-```
-structural_refactor path/to/pre_etl_scope.py
-```
-
-That's it!
-
-**What happens:** The original file is moved to `path/to/legacy/pre_etl_scope_legacy.py` and the refactored version is written to the original path.
+- **Phase A (structural):** `structural_refactor path/to/pre_etl_script.py`
+- **Phase B (comments):** `contextual_refactor path/to/pre_etl_script.py`
 
 ---
 
-## Update to New Version
+## Phase B setup
 
-When a new version is available, update the submodule and reinstall:
+Phase B adds semantic comments using Confluence and (optionally) the Invent Data Requirements repo. The agent runs the context fetch when you invoke `contextual_refactor`.
+
+### Config
+
+Edit **config/external-sources.json** in this repo:
+
+- **phase_b.confluence.base_url:** Confluence base URL (e.g. `https://invent.atlassian.net/wiki`).
+- **phase_b.confluence.clients:** Map `customer_name` (from the pipeline’s `dags/config/main.yaml` → `global_settings/customer_name`) to the Confluence page URL or page id, e.g. `"academyv2": "https://.../pages/123456/..."` or `"academyv2": "123456"`.
+- **phase_b.github.repo:** (Optional) Invent Data Requirements repo URL for table/column definitions.
+
+### Environment
+
+- **CONFLUENCE_API_TOKEN:** Required for Confluence. Use either:
+  - Confluence Cloud Basic: `email:api_key` (e.g. from Atlassian API tokens), or
+  - Bearer token if your instance supports it.
+- **GITHUB_TOKEN:** Optional; set for private Invent repo clone.
+
+### Context fetcher (run by the agent)
+
+When you run `contextual_refactor path/to/scope.py`, the agent runs:
 
 ```bash
-# Step 1: Update submodule to latest version (from project root)
+python .invent-refactoring-engine/scripts/fetch_context.py path/to/scope.py
+```
+
+from the **project root**. Dependencies for the script: `pip install -r .invent-refactoring-engine/scripts/requirements.txt` (PyYAML, requests).
+
+The script:
+
+1. Reads `dags/config/main.yaml` → `global_settings/customer_name`.
+2. Resolves the Confluence page from **config/external-sources.json** (`phase_b.confluence.clients[customer_name]`).
+3. Reads `rocks_extension/opal/config.yml` for `pre_etl_<name>.sources.*.table_name`.
+4. Fetches the Confluence page and (if configured) clones the Invent repo and searches for table sections.
+5. Writes **.cursor/context/<script_stem>.md** (e.g. `.cursor/context/scope.md`).
+
+The agent then reads that file and adds comments only (no code changes).
+
+---
+
+## Phase A (structural)
+
+- Original script is moved to `path/to/legacy/<script>_legacy.py`; refactored script is written to the original path.
+- Only the `main` method is modified; output table must remain identical.
+
+## Phase B (contextual)
+
+- Original script is moved to `path/to/contextual_refactor/<script_stem>_legacy.py`; commented script is written to the original path.
+- Only comments are added or changed; code must stay identical.
+
+---
+
+## Update
+
+```bash
 git submodule update --remote .invent-refactoring-engine
-
-# Step 2: Reinstall to update Cursor rules
 ./.invent-refactoring-engine/install.sh
 ```
 
-**Alternative (using update script):**
-```bash
-# From project root
-./.invent-refactoring-engine/update.sh
-```
-
-The update script will update the repo and reinstall the Cursor rule.
-
-**Note:** Using `git submodule update --remote` gives you more control and ensures you get the latest from the remote.
-
----
-
-## Installation Methods
-
-### Method 1: Git Submodule (Recommended)
-
-```bash
-# Add as submodule
-git submodule add https://github.com/YyagizY/invent-refactoring-engine.git .invent-refactoring-engine
-
-# Install (from project root)
-./.invent-refactoring-engine/install.sh
-```
-
-**Update to latest:**
-```bash
-git submodule update --remote .invent-refactoring-engine
-./.invent-refactoring-engine/install.sh
-```
-
-### Method 2: Direct Clone
-
-```bash
-# Clone into your project
-git clone https://github.com/YyagizY/invent-refactoring-engine.git .invent-refactoring-engine
-
-# Install (from project root)
-./.invent-refactoring-engine/install.sh
-```
-
-**Update:**
-```bash
-./.invent-refactoring-engine/update.sh
-```
-
----
-
-## Commands (Cursor Chat)
-
-| Command | Phase | Description |
-|---------|-------|-------------|
-| `structural_refactor path/to/script.py` | A | Structural & stylistic refactoring |
-| `contextual_refactor path/to/script.py` | B | Planned: business documentation |
-| `validate refactored.py legacy.py` | C | Planned: output comparison |
-
----
-
-## Project Structure After Integration
-
-```
-your-project/
-├── .cursor/
-│   └── rules/
-│       └── structural_refactor.mdc     # Installed by install.sh
-├── .invent-refactoring-engine/         # Submodule
-│   ├── .cursor/
-│   │   └── rules/
-│   │       └── structural_refactor.mdc
-│   ├── config/
-│   │   └── external-sources.json
-│   ├── docs/
-│   │   └── examples/
-│   ├── install.sh
-│   ├── update.sh
-│   └── README.md
-└── rocks_extension/
-    └── opal/
-        └── pre_etl/
-            ├── pre_etl_scope.py
-            └── legacy/
-                └── pre_etl_scope_legacy.py
-```
-
----
-
-## Phase A: Transformation Rules
-
-- **Scope**: Only modifies the `main` method
-- **Data Ingestion**: All input reads at top of `main`
-- **Variable Declaration**: Static variables after reads
-- **Dead Code Removal**: Removes unused DataFrames
-- **Redundancy Pruning**: Removes unused columns
-- **Alias Cleanup**: Simplifies joins (no unnecessary aliases)
-- **Broadcast Preservation**: Keeps existing broadcast hints
-- **Visual Formatting**: Blank lines between different DataFrames
-- **Linearity**: Define DataFrames close to where they're used
-- **Output**: Refactored `main` returns the same output table as legacy
-
-Style: [Invent Analytics PySpark Style Guide](https://github.com/inventanalytics/pyspark-style-guide). All chained expressions are broken (one operation per line).
-
----
-
-## Future Phases
-
-| Phase | Command | Description |
-|-------|---------|-------------|
-| B | `contextual_refactor` | Business documentation (Confluence, GitHub) |
-| C | `validate` | Compare legacy vs refactored output |
-
----
-
-## Troubleshooting
-
-### Rule not working in Cursor
-
-1. Ensure `.cursor/rules/structural_refactor.mdc` exists in your project root
-2. Run install again from project root:
-   ```bash
-   ./.invent-refactoring-engine/install.sh
-   ```
-3. Restart Cursor IDE
-
-### Update not working
-
-1. From project root, check submodule status: `git submodule status`
-2. Update manually: `git submodule update --remote .invent-refactoring-engine`
-3. Reinstall: `./.invent-refactoring-engine/install.sh`
-
----
+Or: `./.invent-refactoring-engine/update.sh`
