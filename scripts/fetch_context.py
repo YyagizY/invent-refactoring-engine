@@ -28,7 +28,9 @@ def main() -> int:
     parser.add_argument("script_path", help="Path to pre_etl script, e.g. rocks_extension/opal/pre_etl/scope.py")
     parser.add_argument("--project-root", default=os.getcwd(), help="Project root (default: cwd)")
     parser.add_argument("--engine", default=None, help="Refactoring engine dir (default: .invent-refactoring-engine under project root)")
+    parser.add_argument("-v", "--verbose", action="store_true", help="Print log for Confluence/Invent fetch and section resolution")
     args = parser.parse_args()
+    verbose = getattr(args, "verbose", False)
 
     project_root = Path(args.project_root).resolve()
     script_path = Path(args.script_path)
@@ -141,7 +143,7 @@ def main() -> int:
     invent_sections = {}
     if invent_repo:
         invent_sections = _fetch_invent_sections(
-            invent_repo, output_table_name, input_table_names, requirements_path, github_token
+            invent_repo, output_table_name, input_table_names, requirements_path, github_token, verbose
         )
 
     # 7) Build context markdown
@@ -282,24 +284,39 @@ def _fetch_invent_sections(
     input_tables: list[str],
     requirements_path: str | None = None,
     token: str | None = None,
+    verbose: bool = False,
 ) -> dict[str, str]:
     """Search Invent repo for table sections (table_name:). requirements_path = path inside repo. token = from config phase_b.github.token or env (token_env). Returns {table_name: content}."""
+    def log(msg: str) -> None:
+        if verbose:
+            print(f"[Invent] {msg}", file=sys.stderr)
+
     tables = [output_table] + [t for t in input_tables if t != output_table]
     out = {}
     with tempfile.TemporaryDirectory(prefix="invent_repo_") as tmp:
         try:
+            log(f"Cloning {repo_url} ...")
             if token and "github.com" in repo_url:
                 # Use token for private repos
                 from urllib.parse import urlparse
                 parsed = urlparse(repo_url)
                 auth_url = f"{parsed.scheme}://x-access-token:{token}@{parsed.netloc}{parsed.path}"
-                subprocess.run(["git", "clone", "--depth", "1", "--single-branch", auth_url, tmp], check=True, capture_output=True)
+                r = subprocess.run(["git", "clone", "--depth", "1", "--single-branch", auth_url, tmp], capture_output=True, text=True, timeout=60)
             else:
-                subprocess.run(["git", "clone", "--depth", "1", "--single-branch", repo_url, tmp], check=True, capture_output=True)
-        except subprocess.CalledProcessError:
+                r = subprocess.run(["git", "clone", "--depth", "1", "--single-branch", repo_url, tmp], capture_output=True, text=True, timeout=60)
+            if r.returncode != 0:
+                log(f"Clone failed: {r.stderr or r.stdout or 'unknown'}")
+                return out
+            log("Clone OK")
+        except subprocess.TimeoutExpired:
+            log("Clone timed out")
+            return out
+        except subprocess.CalledProcessError as e:
+            log(f"Clone error: {e}")
             return out
         search_root = Path(tmp) / requirements_path.strip("/") if requirements_path else Path(tmp)
         if not search_root.exists():
+            log(f"requirements_path {requirements_path} not found in clone, using repo root")
             search_root = Path(tmp)
         for table in tables:
             pattern = f"{table}:"
@@ -311,27 +328,35 @@ def _fetch_invent_sections(
                     timeout=10,
                 )
                 if r.returncode != 0 or not r.stdout:
+                    log(f"  {table}: not found (grep exit {r.returncode})")
                     continue
                 # Get first file and extract section (lines containing pattern and following lines until next similar)
-                first_file = r.stdout.strip().split("\n")[0]
-                if ":" in first_file:
-                    first_file = first_file.split(":")[0]
                 first_line = r.stdout.strip().split("\n")[0].strip()
                 file_path = first_line.split(":")[0].strip()
                 path = Path(file_path) if Path(file_path).is_file() else search_root / file_path if (search_root / file_path).is_file() else Path(tmp) / file_path
-                if path.is_file():
-                    content = path.read_text(encoding="utf-8", errors="replace")
-                    idx = content.find(pattern)
-                    if idx != -1:
-                        start = content.rfind("\n", 0, idx) + 1
-                        rest = content[idx + len(pattern):]
-                        end_match = re.search(r"\n\s*[\w_]+\s*:\s*\n", rest)
-                        end_idx = idx + len(pattern) + (end_match.start() if end_match else len(rest))
-                        block = content[start:end_idx].strip()
-                        if block:
-                            out[table] = block
-            except Exception:
+                if not path.is_file():
+                    log(f"  {table}: matched but file not found at {path}")
+                    continue
+                content = path.read_text(encoding="utf-8", errors="replace")
+                idx = content.find(pattern)
+                if idx != -1:
+                    start = content.rfind("\n", 0, idx) + 1
+                    rest = content[idx + len(pattern):]
+                    end_match = re.search(r"\n\s*[\w_]+\s*:\s*\n", rest)
+                    end_idx = idx + len(pattern) + (end_match.start() if end_match else len(rest))
+                    block = content[start:end_idx].strip()
+                    if block:
+                        out[table] = block
+                        log(f"  {table}: found in {path.name} ({len(block)} chars)")
+                    else:
+                        log(f"  {table}: found in {path.name} but extracted block empty")
+                else:
+                    log(f"  {table}: pattern in file but find() failed")
+            except Exception as e:
+                log(f"  {table}: error {e}")
                 continue
+    if verbose:
+        print(f"[Invent] Resolved {len(out)} table(s) from repo", file=sys.stderr)
     return out
 
 
