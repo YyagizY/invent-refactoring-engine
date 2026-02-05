@@ -1,53 +1,38 @@
-# Invent Refactoring Engine
+# Automated Pre-ETL Refactoring Engine (APRE)
 
-Automated refactoring for PySpark pre-ETL scripts, integrated with Cursor IDE.
+Automated pipeline to standardize, document, and validate client Pre-ETL PySpark scripts. LLM-based **agents** transform legacy technical debt into clean, maintainable, business-aligned code without changing functional output. Integrates with Cursor IDE.
 
-## Quick Start
+---
 
-### 1. Add and install
+## The three agents
+
+| Agent | Command | Purpose |
+|-------|---------|--------|
+| **Structural Refactor (SRA)** | `structural_refactor path/to/pre_etl_script.py` | Linearize flow, remove dead code, enforce style. No business context needed. |
+| **Contextual Refactor (CRA)** | `contextual_refactor path/to/pre_etl_script.py` | Add business-semantic comments only. Fetches context from Confluence + Invent Data Requirements; **does not modify executable code**. |
+| **Validator (VA)** | `refactor_validator <script_name> [run_count]` | Run legacy vs refactored script on real data; row/schema parity check and pass/fail report. |
+
+---
+
+## Quick start
+
+### Install
+
+From your pipeline project root (e.g. customer-pipeline repo):
 
 ```bash
-# From your project root (e.g. customer-pipeline repo)
 git submodule add https://github.com/YyagizY/invent-refactoring-engine.git .invent-refactoring-engine
 ./.invent-refactoring-engine/install.sh
 ```
 
 If you get "Permission denied": `chmod +x .invent-refactoring-engine/install.sh`
 
-### 2. Use in Cursor
-
-<<<<<<< HEAD
-- **Phase A (structural):** `structural_refactor path/to/pre_etl_script.py`
-- **Phase B (comments):** `contextual_refactor path/to/pre_etl_script.py`
-=======
-- **Structural refactor:** `structural_refactor path/to/pre_etl_script.py`
-- **Contextual refactor:** `contextual_refactor path/to/pre_etl_script.py`
-- **Validate:** `refactor_validator pre_etl_script` (or `refactor_validator pre_etl_script 10` for last 10 runs)
->>>>>>> parent of 90a0e69 (Merge pull request #15 from YyagizY/feature/atlassian-cli-confluence-auth)
-
----
-
-## Phase B setup
-
-Phase B adds semantic comments using Confluence and (optionally) the Invent Data Requirements repo. The agent runs the context fetch when you invoke `contextual_refactor`.
-
-### Config
-
-Edit **config/external-sources.json** in this repo:
-
-- **phase_b.confluence.base_url:** Confluence base URL (e.g. `https://invent.atlassian.net/wiki`).
-- **phase_b.confluence.clients:** Map `customer_name` (from the pipeline’s `dags/config/main.yaml` → `global_settings/customer_name`) to the Confluence page URL or page id, e.g. `"academyv2": "https://.../pages/123456/..."` or `"academyv2": "123456"`.
-- **phase_b.github.repo:** (Optional) Invent Data Requirements repo URL for table/column definitions.
-- **phase_b.github.token:** (Optional) GitHub token for private Invent repo. If set, used for clone; otherwise the env var named by `token_env` is used. If neither is set, the script uses **GitHub CLI** when the repo is on GitHub (no token needed after you run `gh auth login` once).
-- **phase_b.github.token_env:** Env var name for GitHub token when `token` is not set (default: `GITHUB_TOKEN`).
-
-### Environment
+### Use in Cursor
 
 - **Structural refactor:** `structural_refactor path/to/pre_etl_script.py`
 - **Contextual refactor:** `contextual_refactor path/to/pre_etl_script.py`
 - **Validate:** `refactor_validator pre_etl_script` (or `refactor_validator pre_etl_script 10` for last 10 runs)
 
-<<<<<<< HEAD
 ---
 
 ---
@@ -80,9 +65,6 @@ In the engine (or your project’s `.invent-refactoring-engine/config/external-s
 - **GITHUB_TOKEN** — Optional; for private Invent repo. Alternatively use `gh auth login` and the script can clone without a token.
 
 ### What the fetcher does
-=======
-### Context fetcher (run by the agent)
->>>>>>> parent of 2be6c9e (Merge branch 'main' into feature/atlassian-cli-confluence-auth)
 
 When you run `contextual_refactor path/to/scope.py`, the agent runs:
 
@@ -90,33 +72,46 @@ When you run `contextual_refactor path/to/scope.py`, the agent runs:
 python .invent-refactoring-engine/scripts/fetch_context.py path/to/scope.py
 ```
 
-from the **project root**. Dependencies for the script: `pip install -r .invent-refactoring-engine/scripts/requirements.txt` (PyYAML).
+from the **project root**. Dependencies: `pip install -r .invent-refactoring-engine/scripts/requirements.txt` (PyYAML, requests).
 
-The script:
+The fetcher: resolves `customer_name` from `main.yaml` → gets Confluence page from config → reads `rocks_extension/opal/config.yml` for table names → fetches Confluence + (if configured) Invent repo table sections → writes **.cursor/context/<script_stem>.md**. The agent then reads that file and adds comments only.
 
-1. Reads `dags/config/main.yaml` → `global_settings/customer_name`.
-2. Resolves the Confluence page from **config/external-sources.json** (`phase_b.confluence.clients[customer_name]`).
-3. Reads `rocks_extension/opal/config.yml` for `pre_etl_<name>.sources.*.table_name`.
-4. Fetches the Confluence page and (if configured) clones the Invent repo and searches for table sections.
-5. Writes **.cursor/context/<script_stem>.md** (e.g. `.cursor/context/scope.md`).
+## Validator Agent (VA)
 
-The agent then reads that file and adds comments only (no code changes).
+Runs **legacy** and **refactored** scripts in parallel over a recent window of real client data and compares output (row count + schema/values). Generates a pass/fail summary; any discrepancy is a hard failure.
+
+### Invoke
+
+```
+refactor_validator <script_name> [run_count]
+```
+
+- **script_name** — Pre-ETL name (e.g. `cluster`, `scope`). Same as the script stem in `pre_etl/`.
+- **run_count** — Optional; default **20** (number of recent run ids to compare).
+
+Examples: `refactor_validator cluster`, `refactor_validator cluster 10`, `refactor_validator goods_in_transit 5`.
+
+### What the agent does
+
+1. Runs the comparison from project root (customer venv + `refin_comparison.py` with `--max-runs <N>`), which **writes** `eggs/comparison_report_<script_name>.txt`.
+2. **Reads** that report file.
+3. Returns a short summary: total runs, Passed/Failed, and any failed run ids (with run_date/error).
+
+### Prerequisites
+
+- Customer virtualenv (e.g. `aloyoga-venv`) activatable from project root.
+- **refin_comparison.py** and its dependencies; Azure/Spark access and config as required by the script.
+- Legacy script at `path/to/legacy/<script>_legacy.py` (created by SRA); refactored script at the original path.
+
+### Troubleshooting
+
+- **"Azure CLI is not authenticated"** — run `az login` (and `az account set` if needed).
+- **Missing venv or import errors** — ensure the customer venv is installed; the agent will report and stop.
+- **Report file missing** — agent will not invent a summary; confirm the comparison script wrote `eggs/comparison_report_<script_name>.txt`.
 
 ---
 
-## Phase A (structural)
-
-- Original script is moved to `path/to/legacy/<script>_legacy.py`; refactored script is written to the original path.
-- Only the `main` method is modified; output table must remain identical.
-
-## Phase B (contextual)
-
-- Original script is moved to `path/to/contextual_refactor/<script_stem>_legacy.py`; commented script is written to the original path.
-- Only comments are added or changed; code must stay identical.
-
----
-
-## Update
+## Update the engine
 
 ```bash
 git submodule update --remote .invent-refactoring-engine
@@ -124,53 +119,3 @@ git submodule update --remote .invent-refactoring-engine
 ```
 
 Or: `./.invent-refactoring-engine/update.sh`
-
----
-
-## Tutorial: Using the Refactor Validator
-
-After you refactor a PreETL script (e.g. with `structural_refactor`), you can validate that the refactored code produces the same output as the legacy version over recent pipeline runs. The **refactor_validator** Cursor rule automates this: it runs the comparison for you and summarizes pass/fail and any failed run ids.
-
-### When to use it
-
-- After Phase A (structural refactor) to confirm the new script matches legacy output.
-- When you want a quick “did my refactor break anything?” check over the last N run ids.
-
-### How to invoke it
-
-In Cursor, ask the agent to run the validator with:
-
-```
-refactor_validator <script_name> [run_count]
-```
-
-- **script_name**: The PreETL script name (e.g. `cluster`, `goods_in_transit`, `asn`, `product`). Use the same name as in your `pre_etl/` path (e.g. `cluster.py` → `cluster`).
-- **run_count** (optional): How many recent run ids to compare. Default is **20** if you omit it.
-
-**Examples:**
-
-- `refactor_validator cluster` — compare last 20 run ids for `cluster`.
-- `refactor_validator cluster 10` — compare last 10 run ids.
-- `refactor_validator goods_in_transit 5` — compare last 5 run ids for `goods_in_transit`.
-
-### What the agent does
-
-The agent (following the rule in `.cursor/rules/refactor_validator.mdc`) will:
-
-1. **Run the comparison** from your project root: it activates your customer virtualenv (e.g. `aloyoga-venv`) and runs `refin_comparison.py` with your script name and `--max-runs <N>`.
-2. **Read the report** written to `eggs/comparison_report_<script_name>.txt`.
-3. **Return a short validation summary**: total runs, Passed/Failed, and a list of any failed run ids (with run_date and error if present).
-
-You get a concise “all passed” or “X run(s) failed” verdict without pasting the full report unless you ask for it.
-
-### Prerequisites
-
-- **Customer virtualenv** must exist and be activatable (e.g. `source aloyoga-venv/bin/activate`). The comparison script runs inside this environment.
-- **refin_comparison.py** and its dependencies (see `.invent-refactoring-engine/scripts/`) must be available; the script needs Azure/Spark access and config as described in the comparison script’s own docs.
-- **Legacy script** should be at `path/to/legacy/<script>_legacy.py` (as created by Phase A). Refactored script at the original path.
-
-### If something goes wrong
-
-- **“Azure CLI is not authenticated”** — run `az login` (and optionally `az account set`) before re-running.
-- **Missing venv or import errors** — ensure the customer venv is installed and activated; the agent will report the error and stop.
-- **Report file missing** — the agent will tell you and will not invent a summary; check that the comparison script completed and wrote to `eggs/comparison_report_<script_name>.txt`.
