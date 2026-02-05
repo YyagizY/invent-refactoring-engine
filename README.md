@@ -37,9 +37,7 @@ Edit **config/external-sources.json** in this repo:
 
 ### Environment
 
-- **CONFLUENCE_API_TOKEN:** Required for Confluence. Use either:
-  - Confluence Cloud Basic: `email:api_key` (e.g. from Atlassian API tokens), or
-  - Bearer token if your instance supports it.
+- **Confluence:** Uses [atlassian-cli](https://github.com/omar16100/atlassian-cli) only. Install it (e.g. `brew install omar16100/atlassian-cli/atlassian-cli`) and run `atlassian-cli auth login` once: `atlassian-cli auth login --profile <name> --base-url https://invent.atlassian.net --email <your@email> --token <api_token> --default`. No Confluence token env var is needed.
 - **GITHUB_TOKEN:** Optional. Used for private Invent repo when `phase_b.github.token` is not set. If you prefer not to use a token, install [GitHub CLI](https://cli.github.com/) and run `gh auth login` once; the script will then clone via `gh repo clone` and no token is needed.
 
 ### Context fetcher (run by the agent)
@@ -50,7 +48,7 @@ When you run `contextual_refactor path/to/scope.py`, the agent runs:
 python .invent-refactoring-engine/scripts/fetch_context.py path/to/scope.py
 ```
 
-from the **project root**. Dependencies for the script: `pip install -r .invent-refactoring-engine/scripts/requirements.txt` (PyYAML, requests).
+from the **project root**. Dependencies for the script: `pip install -r .invent-refactoring-engine/scripts/requirements.txt` (PyYAML).
 
 The script:
 

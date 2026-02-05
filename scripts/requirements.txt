@@ -1,3 +1,2 @@
 # For fetch_context.py (Phase B)
 pyyaml>=6.0
-requests>=2.28.0
