@@ -16,8 +16,14 @@ If you get "Permission denied": `chmod +x .invent-refactoring-engine/install.sh`
 
 ### 2. Use in Cursor
 
+<<<<<<< HEAD
 - **Phase A (structural):** `structural_refactor path/to/pre_etl_script.py`
 - **Phase B (comments):** `contextual_refactor path/to/pre_etl_script.py`
+=======
+- **Structural refactor:** `structural_refactor path/to/pre_etl_script.py`
+- **Contextual refactor:** `contextual_refactor path/to/pre_etl_script.py`
+- **Validate:** `refactor_validator pre_etl_script` (or `refactor_validator pre_etl_script 10` for last 10 runs)
+>>>>>>> parent of 90a0e69 (Merge pull request #15 from YyagizY/feature/atlassian-cli-confluence-auth)
 
 ---
 
