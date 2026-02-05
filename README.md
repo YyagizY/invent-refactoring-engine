@@ -32,7 +32,7 @@ Edit **config/external-sources.json** in this repo:
 - **phase_b.confluence.base_url:** Confluence base URL (e.g. `https://invent.atlassian.net/wiki`).
 - **phase_b.confluence.clients:** Map `customer_name` (from the pipeline’s `dags/config/main.yaml` → `global_settings/customer_name`) to the Confluence page URL or page id, e.g. `"academyv2": "https://.../pages/123456/..."` or `"academyv2": "123456"`.
 - **phase_b.github.repo:** (Optional) Invent Data Requirements repo URL for table/column definitions.
-- **phase_b.github.token:** (Optional) GitHub token for private Invent repo. If set, used for clone; otherwise the env var named by `token_env` is used.
+- **phase_b.github.token:** (Optional) GitHub token for private Invent repo. If set, used for clone; otherwise the env var named by `token_env` is used. If neither is set, the script uses **GitHub CLI** when the repo is on GitHub (no token needed after you run `gh auth login` once).
 - **phase_b.github.token_env:** Env var name for GitHub token when `token` is not set (default: `GITHUB_TOKEN`).
 
 ### Environment
@@ -40,7 +40,7 @@ Edit **config/external-sources.json** in this repo:
 - **CONFLUENCE_API_TOKEN:** Required for Confluence. Use either:
   - Confluence Cloud Basic: `email:api_key` (e.g. from Atlassian API tokens), or
   - Bearer token if your instance supports it.
-- **GITHUB_TOKEN:** Used for private Invent repo when `phase_b.github.token` is not set in config.
+- **GITHUB_TOKEN:** Optional. Used for private Invent repo when `phase_b.github.token` is not set. If you prefer not to use a token, install [GitHub CLI](https://cli.github.com/) and run `gh auth login` once; the script will then clone via `gh repo clone` and no token is needed.
 
 ### Context fetcher (run by the agent)
 

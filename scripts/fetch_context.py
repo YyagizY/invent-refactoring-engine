@@ -10,6 +10,8 @@ Usage (from customer-pipeline project root):
 Requires: PyYAML, requests (for Confluence).
 Env: CONFLUENCE_API_TOKEN (email:api_key for Basic auth, or Bearer token).
      Optional GITHUB_TOKEN for private Invent repo (or set phase_b.github.token in config).
+     If no GitHub token is set, GitHub CLI is used when available: run `gh auth login` once, then
+     the script will clone via `gh repo clone owner/repo` and no token is needed.
 """
 from __future__ import annotations
 
@@ -21,6 +23,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from urllib.parse import urlparse
 
 
 def main() -> int:
@@ -311,6 +314,30 @@ def _strip_invent_structural_keys(block: str) -> str:
         return block
 
 
+def _github_owner_repo(repo_url: str) -> str | None:
+    """Parse GitHub repo URL into owner/repo for use with `gh repo clone`. Returns None if not a GitHub URL."""
+    s = repo_url.strip().rstrip("/")
+    if "github.com" not in s:
+        return None
+    if s.startswith("git@"):
+        m = re.match(r"git@github\.com:([^/]+)/([^/]+?)(?:\.git)?$", s)
+        if m:
+            return f"{m.group(1)}/{m.group(2)}"
+        return None
+    parsed = urlparse(s)
+    if parsed.netloc != "github.com" and not parsed.netloc.endswith(".github.com"):
+        return None
+    path = (parsed.path or "").strip("/")
+    if not path:
+        return None
+    if path.endswith(".git"):
+        path = path[:-4]
+    parts = path.split("/")
+    if len(parts) >= 2:
+        return f"{parts[0]}/{parts[1]}"
+    return None
+
+
 def _fetch_invent_sections(
     repo_url: str,
     output_table: str,
@@ -319,7 +346,10 @@ def _fetch_invent_sections(
     token: str | None = None,
     verbose: bool = False,
 ) -> dict[str, str]:
-    """Search Invent repo for table sections (table_name:). requirements_path = path inside repo. token = from config phase_b.github.token or env (token_env). Returns {table_name: content}."""
+    """Search Invent repo for table sections (table_name:). requirements_path = path inside repo.
+    token = from config phase_b.github.token or env (token_env). If no token and repo is GitHub,
+    uses GitHub CLI (gh repo clone) when available so user can run `gh auth login` once instead.
+    Returns {table_name: content}."""
     def log(msg: str) -> None:
         if verbose:
             print(f"[Invent] {msg}", file=sys.stderr)
@@ -330,11 +360,27 @@ def _fetch_invent_sections(
         try:
             log(f"Cloning {repo_url} ...")
             if token and "github.com" in repo_url:
-                # Use token for private repos
-                from urllib.parse import urlparse
                 parsed = urlparse(repo_url)
                 auth_url = f"{parsed.scheme}://x-access-token:{token}@{parsed.netloc}{parsed.path}"
                 r = subprocess.run(["git", "clone", "--depth", "1", "--single-branch", auth_url, tmp], capture_output=True, text=True, timeout=60)
+            elif "github.com" in repo_url:
+                owner_repo = _github_owner_repo(repo_url)
+                if owner_repo:
+                    r = subprocess.run(
+                        ["gh", "repo", "clone", owner_repo, tmp, "--", "--depth", "1", "--single-branch"],
+                        capture_output=True,
+                        text=True,
+                        timeout=60,
+                    )
+                    if r.returncode != 0:
+                        err = (r.stderr or r.stdout or "unknown").strip()
+                        if "gh auth login" in err or "authentication" in err.lower():
+                            print("Error: GitHub clone failed. Install GitHub CLI and run: gh auth login", file=sys.stderr)
+                        else:
+                            log(f"Clone failed: {err}")
+                        return out
+                else:
+                    r = subprocess.run(["git", "clone", "--depth", "1", "--single-branch", repo_url, tmp], capture_output=True, text=True, timeout=60)
             else:
                 r = subprocess.run(["git", "clone", "--depth", "1", "--single-branch", repo_url, tmp], capture_output=True, text=True, timeout=60)
             if r.returncode != 0:
