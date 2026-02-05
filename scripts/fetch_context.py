@@ -125,9 +125,11 @@ def main() -> int:
     if not token:
         print("Error: Set phase_b.confluence.api_token (in config) or set the env var named by api_token_env", file=sys.stderr)
         return 1
+    # Confluence Cloud requires Basic auth (email + API token). Optional email from config or env.
+    email = confluence_cfg.get("email") or os.environ.get(confluence_cfg.get("email_env", "CONFLUENCE_EMAIL") or "")
 
     try:
-        confluence_body = _fetch_confluence_page(base_url, page_id, token)
+        confluence_body = _fetch_confluence_page(base_url, page_id, token, email=email or None)
     except Exception as e:
         print(f"Error fetching Confluence page: {e}", file=sys.stderr)
         return 1
@@ -179,7 +181,7 @@ def _resolve_confluence_page_id(page_ref: str | dict, base_url: str) -> str | No
     return None
 
 
-def _fetch_confluence_page(base_url: str, page_id: str, token: str) -> str:
+def _fetch_confluence_page(base_url: str, page_id: str, token: str, *, email: str | None = None) -> str:
     try:
         import requests
     except ImportError:
@@ -187,13 +189,17 @@ def _fetch_confluence_page(base_url: str, page_id: str, token: str) -> str:
 
     url = f"{base_url}/rest/api/content/{page_id}"
     params = {"expand": "body.storage"}
-    # Confluence Cloud: Basic auth (email:api_token) or Bearer
+    # Confluence Cloud: Basic auth (email + API token). Token can be "email:api_token" or separate email + token.
     if token.startswith("Bearer"):
         headers = {"Authorization": token}
         auth = None
     elif ":" in token:
-        email, api_key = token.split(":", 1)
-        auth = (email, api_key)
+        email_part, api_key = token.split(":", 1)
+        auth = (email_part, api_key)
+        headers = {}
+    elif email and token.startswith("ATATT"):
+        # Confluence Cloud: Atlassian API tokens (ATATT...) require Basic auth (email, token), not Bearer.
+        auth = (email, token)
         headers = {}
     else:
         headers = {"Authorization": f"Bearer {token}"}
@@ -278,6 +284,33 @@ def _parse_confluence_business_logic(html: str, pre_etl_name: str) -> str:
     return ""
 
 
+# Table-level keys to strip from Invent definitions (we keep description + schema/column/description only)
+_INVENT_STRIP_TABLE_KEYS = frozenset({"path", "primary_key", "control_list", "control_params", "storage_type"})
+
+
+def _strip_invent_structural_keys(block: str) -> str:
+    """Keep only table-level description and schema/column_name/description. Strip type, storage_type, path, primary_key, control_list, control_params. Returns block unchanged if not parseable."""
+    try:
+        import yaml
+        data = yaml.safe_load(block)
+        if not data or not isinstance(data, dict):
+            return block
+        for table_name, table_def in list(data.items()):
+            if not isinstance(table_def, dict):
+                continue
+            for strip_key in _INVENT_STRIP_TABLE_KEYS:
+                table_def.pop(strip_key, None)
+            # Under schema: keep only description per column (remove type etc.)
+            schema = table_def.get("schema")
+            if isinstance(schema, dict):
+                for col_name, col_def in list(schema.items()):
+                    if isinstance(col_def, dict) and "description" in col_def:
+                        schema[col_name] = {"description": col_def["description"]}
+        return yaml.dump(data, default_flow_style=False, allow_unicode=True, sort_keys=False).strip()
+    except Exception:
+        return block
+
+
 def _fetch_invent_sections(
     repo_url: str,
     output_table: str,
@@ -356,7 +389,7 @@ def _fetch_invent_sections(
                     end_idx = idx + len(pattern) + (end_match.start() if end_match else len(rest))
                     block = content[start:end_idx].strip()
                     if block:
-                        out[table] = block
+                        out[table] = _strip_invent_structural_keys(block)
                         log(f"  {table}: found in {path.name} ({len(block)} chars)")
                     else:
                         log(f"  {table}: found in {path.name} but extracted block empty")
