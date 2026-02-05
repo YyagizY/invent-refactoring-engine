@@ -4,6 +4,12 @@ Legacy vs refactored PreETL comparison utilities.
 This module is meant for local / ad-hoc validation that a structurally-refactored
 PreETL step produces identical output to its legacy counterpart for multiple
 Azure run ids (and derived run dates).
+
+Before running this script, activate the customer virtualenv:
+
+    source <customer-name>-venv/bin/activate
+
+e.g. for aloyoga:  source aloyoga-venv/bin/activate
 """
 
 from __future__ import annotations
@@ -19,6 +25,13 @@ import threading
 from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Set, Tuple, Union
+
+# Set Spark/Java env before invent_local_env starts the JVM
+if not os.environ.get("JAVA_HOME"):
+    os.environ["JAVA_HOME"] = "/Library/Java/JavaVirtualMachines/jdk-11.jdk/Contents/Home"
+if not os.environ.get("SPARK_LOCAL_IP"):
+    os.environ["SPARK_LOCAL_IP"] = "127.0.0.1"
+
 from invent_local_env import spark, display, F
 
 # Script may live at repo/.invent-refactoring-engine/scripts/refin_comparison.py or repo/refin_comparison.py
@@ -194,17 +207,19 @@ def get_input_bucket_from_main_yaml(
 ) -> str:
     """
     Get input_bucket from main.yaml global_settings.input_bucket.
-    Resolves ${oc.env:INPUT_BUCKET_NAME,"invent-aloyoga-input"} style to env or default.
+    Resolves ${oc.env:INPUT_BUCKET_NAME,"invent-<customer_name>-input"} style to env or default.
     """
     path = main_yaml_path or _DEFAULT_MAIN_YAML
     config = _load_yaml(path)
     gs = (config or {}).get("global_settings", {}) or {}
+    customer_name = gs.get("customer_name")
+    default_bucket = f"invent-{customer_name}-input" if customer_name else "invent-aloyoga-input"
     raw = gs.get("input_bucket", "")
     if not raw:
-        return os.getenv("INPUT_BUCKET_NAME", "invent-aloyoga-input")
-    # Handle ${oc.env:INPUT_BUCKET_NAME,"invent-aloyoga-input"}
+        return os.getenv("INPUT_BUCKET_NAME", default_bucket)
+    # Handle ${oc.env:INPUT_BUCKET_NAME,"invent-<customer_name>-input"}
     if "INPUT_BUCKET_NAME" in raw:
-        return os.getenv("INPUT_BUCKET_NAME", "invent-aloyoga-input")
+        return os.getenv("INPUT_BUCKET_NAME", default_bucket)
     return raw.strip().strip("'\"")
 
 
@@ -1075,6 +1090,27 @@ class PreETLRefinComparator:
         return passed
 
 
+def _is_likely_secret(key: str) -> bool:
+    """True if the env var name suggests a secret (value will be redacted)."""
+    k = key.upper()
+    return any(
+        x in k
+        for x in ("SECRET", "PASSWORD", "TOKEN", "KEY", "CREDENTIAL", "AUTH", "PRIVATE")
+    )
+
+
+def _print_environment_variables() -> None:
+    """Print all environment variables, sorted by key. Redacts values for likely secrets."""
+    print("environment variables:")
+    for key in sorted(os.environ.keys()):
+        value = os.environ[key]
+        if _is_likely_secret(key):
+            value = "(redacted)" if value else "(not set)"
+        print(f"  {key}={value}")
+
+    print("")
+
+
 def print_environment_diagnostics() -> None:
     """
     Print machine and Spark info so you can compare with the notebook.
@@ -1086,8 +1122,17 @@ def print_environment_diagnostics() -> None:
     print(f"cwd: {os.getcwd()}")
     print(f"python: {sys.executable}")
     print(f"VIRTUAL_ENV: {os.environ.get('VIRTUAL_ENV', '(not set)')}")
-    print(f"/mnt/invent-aloyoga-input exists: {os.path.exists('/mnt/invent-aloyoga-input')}")
-    print(f"/mnt/invent-aloyoga-input/history exists: {os.path.exists('/mnt/invent-aloyoga-input/history')}")
+    customer_name = get_customer_name_from_main_yaml(_DEFAULT_MAIN_YAML)
+    input_bucket = f"invent-{customer_name}-input" if customer_name else None
+    if input_bucket:
+        mount_path = f"/mnt/{input_bucket}"
+        print(f"{mount_path} exists: {os.path.exists(mount_path)}")
+        print(f"{mount_path}/history exists: {os.path.exists(mount_path + '/history')}")
+    else:
+        print("customer_name not in config, skipping input path checks")
+
+    # List all environment variables (redact likely secrets)
+    _print_environment_variables()
 
     try:
         from pyspark.sql import SparkSession
@@ -1191,8 +1236,15 @@ def _parse_args():
     p.add_argument(
         "script",
         type=str,
+        nargs="?",
+        default=None,
         metavar="SCRIPT",
-        help="PreETL script name (e.g. goods_in_transit, cluster). Refactored: pre_etl.<SCRIPT>; legacy: pre_etl.legacy.<SCRIPT>_legacy.",
+        help="PreETL script name (e.g. goods_in_transit, cluster). Refactored: pre_etl.<SCRIPT>; legacy: pre_etl.legacy.<SCRIPT>_legacy. Omit when using --diagnostics-only.",
+    )
+    p.add_argument(
+        "--diagnostics-only",
+        action="store_true",
+        help="Only print environment diagnostics (host, env vars, paths) and exit. Does not start Spark.",
     )
     p.add_argument(
         "--max-runs",
@@ -1226,6 +1278,12 @@ def _default_report_path(script_name: str) -> str:
 
 if __name__ == "__main__":
     args = _parse_args()
+    if args.diagnostics_only:
+        print_environment_diagnostics()
+        sys.exit(0)
+    if not args.script:
+        print("error: the following arguments are required: SCRIPT", file=sys.stderr)
+        sys.exit(2)
     report_path = args.output if args.output else _default_report_path(args.script)
     _compare_pre_etl_example(
         script_name=args.script,
