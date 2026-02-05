@@ -23,12 +23,12 @@ contextual_refactor rocks_extension/opal/pre_etl/scope.py
 
 ## Prerequisites (before running)
 
-When contextual_refactor is invoked, the context fetch needs access to **Confluence** (business logic page) and optionally **GitHub** (Invent repo).
+When contextual_refactor is invoked, the context fetch needs access to GitHub (for the Invent repo). **The user must connect their GitHub account first** unless they supply a token:
 
-- **Confluence:** Install [atlassian-cli](https://github.com/omar16100/atlassian-cli) and run `atlassian-cli auth login` once (e.g. `brew install omar16100/atlassian-cli/atlassian-cli`, then `atlassian-cli auth login --profile <name> --base-url https://invent.atlassian.net --email <your@email> --token <api_token> --default`). No Confluence token env var is needed.
-- **GitHub:** Install [GitHub CLI](https://cli.github.com/) and run `gh auth login` once, or set `GITHUB_TOKEN` (or the token in config).
+- **Recommended:** Install [GitHub CLI](https://cli.github.com/) and run `gh auth login` once. Then no GitHub token is needed.
+- **Alternative:** Set `GITHUB_TOKEN` (or the token in config) if they prefer not to use the CLI.
 
-If the fetch fails with a Confluence error, tell the user to install atlassian-cli and run `atlassian-cli auth login`, then retry. If it fails with a GitHub clone or authentication error, tell the user to run `gh auth login`, then retry.
+If the fetch fails with a GitHub clone or authentication error, tell the user to connect their GitHub account: run `gh auth login`, then retry the contextual_refactor command.
 
 ## Step 1: Run the context fetch
 
@@ -46,7 +46,7 @@ If the refactoring engine is in a different location, use that path:
 python <path_to_engine>/scripts/fetch_context.py <script_path>
 ```
 
-This writes the context file to `.cursor/context/<script_stem>.md` (e.g. `.cursor/context/scope.md`). If the script fails (e.g. missing Confluence auth or config), report the error and stop. Do not add comments from the existing context file if it exists. If the failure is due to Confluence, tell the user to install atlassian-cli and run `atlassian-cli auth login`, then retry. If the failure is due to GitHub (clone/authentication), tell the user to run `gh auth login`, then retry.
+This writes the context file to `.cursor/context/<script_stem>.md` (e.g. `.cursor/context/scope.md`). If the script fails (e.g. missing CONFLUENCE_API_TOKEN or config), report the error and stop. Do not add comments from the existing context file if it exists. If the failure is due to GitHub (clone/authentication), tell the user to connect their GitHub account first: run `gh auth login`, then retry.
 
 ## Step 2: Read the context file
 
