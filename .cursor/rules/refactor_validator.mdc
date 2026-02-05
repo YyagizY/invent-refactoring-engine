@@ -1,0 +1,105 @@
+---
+description: Run PreETL comparison for a script over recent run ids and summarize validation result (pass/fail, failed run ids).
+globs: ["**/pre_etl*.py", "**/*_pre_etl.py", "**/eggs/comparison_report*.txt"]
+alwaysApply: false
+---
+
+# Refactor Validator
+
+When the user invokes **refactor_validator**, you run the legacy-vs-refactored PreETL comparison for the given script over the last N run ids, then read the comparison report and produce a short **validation summary**: whether all runs passed or any failed, and which run ids (if any) failed.
+
+## Command format
+
+```
+refactor_validator <script_name> [run_count]
+```
+
+- **script_name**: PreETL script name (e.g. `cluster`, `goods_in_transit`, `asn`, `product`). Same name used by `refin_comparison.py` (refactored: `pre_etl.<name>`, legacy: `pre_etl.legacy.<name>_legacy`).
+- **run_count** (optional): Number of run ids to compare. Default: **20** if omitted.
+
+Examples:
+
+```
+refactor_validator cluster 20
+refactor_validator cluster
+refactor_validator goods_in_transit 10
+```
+
+## Execution steps
+
+When you receive a `refactor_validator <script> [N]` command:
+
+### Step 1: Run the comparison script
+
+From the **project root** (customer-pipeline repo root):
+
+1. **Determine the customer name** (e.g. from the repo name `customer-pipeline-aloyoga` → `aloyoga`, or from `dags/config/main.yaml` if needed).
+2. **Activate the customer virtualenv**, then run the comparison in the **same shell**:
+
+```
+source <customer-name>-venv/bin/activate
+python .invent-refactoring-engine/scripts/refin_comparison.py <script_name> --max-runs <N>
+```
+
+Or as a single line:
+
+```
+source <customer-name>-venv/bin/activate && python .invent-refactoring-engine/scripts/refin_comparison.py <script_name> --max-runs <N>
+```
+
+- Use **N** from the user command, or **20** if run_count was omitted.
+- The script writes the report to `eggs/comparison_report_<script_name>.txt` by default.
+- If the command fails (e.g. missing venv, Spark error, import error), report the error and stop. Do not fabricate a summary.
+
+### Step 2: Read the comparison report
+
+Open and read:
+
+```
+eggs/comparison_report_<script_name>.txt
+```
+
+The report format:
+
+- Header: `PreETL comparison report`, then `run_ids: <total>`.
+- For each run, a block separated by `----...` containing:
+  - `run_id:     <id>`
+  - `run_date:   <date>`
+  - `status:     PASS` or `status:     FAIL`
+  - (optionally) `error: ...` for FAIL.
+- Footer: `Passed: <X> / <Y>`.
+
+### Step 3: Produce the validation summary
+
+From the report:
+
+1. Count total runs (from `run_ids: N` or from counting blocks / `Passed: X / Y`).
+2. Collect every run block where `status:` is `FAIL` and note its `run_id` (and optionally `run_date`, `error`).
+3. Read the final `Passed: X / Y` line.
+
+Then output a **Validation summary** in this form:
+
+```
+## Refactor validation summary — <script_name>
+
+**Runs:** <total> (last N run ids)  
+**Result:** <Passed | Failed>  
+**Passed:** X / Y
+
+<If any failures:>
+**Failed run ids:**
+- <run_id_1> (<run_date>, <short error if present>)
+- <run_id_2> ...
+
+<One-line verdict:>
+- If all passed: "All runs passed; refactored output matches legacy."
+- If any failed: "Validation failed for <count> run(s). Investigate failed run ids above."
+```
+
+Keep the summary concise. Do not paste the full report unless the user asks; the summary is enough for a quick pass/fail and list of failed runs.
+
+## Notes
+
+- **Virtualenv:** Step 1 must run `source <customer-name>-venv/bin/activate` before the Python script so the comparison uses the correct dependencies. If the run fails due to missing modules or Spark, report the error (and confirm the venv was activated).
+- **Report path:** If the user specified a custom `--output` in a previous run, the report may be elsewhere; for this rule we assume the default path `eggs/comparison_report_<script_name>.txt`. If the file is missing after the run, report that and do not invent a summary.
+- **Timeout:** The comparison script has a default timeout (e.g. 20 minutes). If the run times out, report that and summarize whatever is already in the report file, if present.
