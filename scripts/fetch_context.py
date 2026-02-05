@@ -380,10 +380,13 @@ def _fetch_invent_sections(
                     log(f"  {table}: matched but file not found at {path}")
                     continue
                 content = path.read_text(encoding="utf-8", errors="replace")
-                idx = content.find(pattern)
-                if idx != -1:
+                # Match only exact key at line start (e.g. scope_feed:), not substring (e.g. blocked_destination_scope_feed:)
+                key_pat = re.compile(r"^\s*(?P<key>" + re.escape(table) + r"):\s*(?:\n|$)", re.MULTILINE)
+                key_m = key_pat.search(content)
+                if key_m:
+                    idx = key_m.start("key")
                     start = content.rfind("\n", 0, idx) + 1
-                    rest = content[idx + len(pattern):]
+                    rest = content[idx + len(pattern) :]
                     # Match next top-level key only (no leading space), so we don't stop at YAML nested keys like "schema:" or "end_date:"
                     end_match = re.search(r"\n[^\s#][\w_]*\s*:\s*(?:\n|$)", rest, re.MULTILINE)
                     end_idx = idx + len(pattern) + (end_match.start() if end_match else len(rest))
@@ -394,7 +397,7 @@ def _fetch_invent_sections(
                     else:
                         log(f"  {table}: found in {path.name} but extracted block empty")
                 else:
-                    log(f"  {table}: pattern in file but find() failed")
+                    log(f"  {table}: no exact key match in file (key must be top-level, e.g. {table}:)")
             except Exception as e:
                 log(f"  {table}: error {e}")
                 continue
