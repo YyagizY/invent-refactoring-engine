@@ -7,10 +7,11 @@ fetches Confluence + optional Invent repo, writes .cursor/context/<script_stem>.
 Usage (from customer-pipeline project root):
   python .invent-refactoring-engine/scripts/fetch_context.py path/to/pre_etl/scope.py
 
-Requires: PyYAML.
-Confluence: atlassian-cli (install and run `atlassian-cli auth login` once; no token env var).
-GitHub: Optional GITHUB_TOKEN for private Invent repo (or set phase_b.github.token in config).
-        If no GitHub token is set, GitHub CLI is used when available: run `gh auth login` once.
+Requires: PyYAML, requests (for Confluence).
+Env: CONFLUENCE_API_TOKEN (email:api_key for Basic auth, or Bearer token).
+     Optional GITHUB_TOKEN for private Invent repo (or set phase_b.github.token in config).
+     If no GitHub token is set, GitHub CLI is used when available: run `gh auth login` once, then
+     the script will clone via `gh repo clone owner/repo` and no token is needed.
 """
 from __future__ import annotations
 
@@ -18,7 +19,6 @@ import argparse
 import json
 import os
 import re
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -123,11 +123,18 @@ def main() -> int:
 
     output_table_name = f"{pre_etl_name}_feed"
 
-    # 4) Fetch Confluence page via atlassian-cli (user must run `atlassian-cli auth login` once)
+    # 4) Fetch Confluence page (token: from config api_token, or env var named by api_token_env)
+    token = confluence_cfg.get("api_token") or os.environ.get(confluence_cfg.get("api_token_env", "CONFLUENCE_API_TOKEN"))
+    if not token:
+        print("Error: Set phase_b.confluence.api_token (in config) or set the env var named by api_token_env", file=sys.stderr)
+        return 1
+    # Confluence Cloud requires Basic auth (email + API token). Optional email from config or env.
+    email = confluence_cfg.get("email") or os.environ.get(confluence_cfg.get("email_env", "CONFLUENCE_EMAIL") or "")
+
     try:
-        confluence_body = _fetch_confluence_via_cli(page_id, verbose)
-    except _ConfluenceCliError as e:
-        print(f"Error: {e}", file=sys.stderr)
+        confluence_body = _fetch_confluence_page(base_url, page_id, token, email=email or None)
+    except Exception as e:
+        print(f"Error fetching Confluence page: {e}", file=sys.stderr)
         return 1
 
     # 5) Parse Confluence: Input Data Explanations per table, Pre-ETL Business Logics / pre_etl_name
@@ -143,6 +150,15 @@ def main() -> int:
         invent_sections = _fetch_invent_sections(
             invent_repo, output_table_name, input_table_names, requirements_path, github_token, verbose
         )
+        if invent_sections is None:
+            print(
+                "Error: Invent repo clone or fetch failed. No context file written. "
+                "Fix phase_b.github.repo in config (e.g. valid GitHub URL) or connect GitHub: run 'gh auth login', then retry.",
+                file=sys.stderr,
+            )
+            return 1
+    else:
+        invent_sections = {}
 
     # 7) Build context markdown
     context_md = _build_context_md(
@@ -153,6 +169,24 @@ def main() -> int:
         input_sections=input_sections,
         business_logic=business_logic,
     )
+
+    # 7.5) Validate context content
+    if not context_md.strip():
+        print("Error: Confluence page is empty or not found. The context file contains no content.", file=sys.stderr)
+        return 1
+
+    # Check for placeholder saturation (Business logic missing AND all tables missing definitions)
+    has_logic = bool(business_logic.strip())
+    has_tables = False
+    all_tables = [output_table_name] + input_table_names
+    for t in all_tables:
+        if invent_sections.get(t) or input_sections.get(t):
+            has_tables = True
+            break
+            
+    if not has_logic and not has_tables:
+        print("Error: Confluence page appears to be empty or not found. All sections show 'No definition found' or 'No business logic section found'. Please verify the Confluence page URL in config and ensure the page exists and has content.", file=sys.stderr)
+        return 1
 
     # 8) Write .cursor/context/<stem>.md
     context_dir = project_root / ".cursor" / "context"
@@ -177,49 +211,36 @@ def _resolve_confluence_page_id(page_ref: str | dict, base_url: str) -> str | No
     return None
 
 
-class _ConfluenceCliError(Exception):
-    """Raised when Confluence fetch via atlassian-cli fails."""
-
-
-def _fetch_confluence_via_cli(page_id: str, verbose: bool = False) -> str:
-    """Fetch Confluence page body (storage format) using atlassian-cli. User must run `atlassian-cli auth login` once."""
-    cli = shutil.which("atlassian-cli")
-    if not cli:
-        raise _ConfluenceCliError(
-            "atlassian-cli not found. Install it (e.g. brew install omar16100/atlassian-cli/atlassian-cli), "
-            "then run: atlassian-cli auth login --profile <name> --base-url https://invent.atlassian.net "
-            "--email <your@email> --token <api_token> --default"
-        )
+def _fetch_confluence_page(base_url: str, page_id: str, token: str, *, email: str | None = None) -> str:
     try:
-        r = subprocess.run(
-            [cli, "confluence", "page", "get", "--id", page_id, "--format", "json"],
-            capture_output=True,
-            text=True,
-            timeout=60,
-        )
-    except subprocess.TimeoutExpired:
-        raise _ConfluenceCliError("atlassian-cli confluence page get timed out.") from None
-    if r.returncode != 0:
-        err = (r.stderr or r.stdout or "unknown").strip()
-        if "auth" in err.lower() or "login" in err.lower() or "401" in err or "403" in err:
-            raise _ConfluenceCliError(
-                f"atlassian-cli failed (not logged in?). Run: atlassian-cli auth login --profile <name> "
-                f"--base-url https://invent.atlassian.net --email <your@email> --token <api_token> --default. Stderr: {err[:200]}"
-            )
-        raise _ConfluenceCliError(f"atlassian-cli failed: {err[:300]}")
-    try:
-        data = json.loads(r.stdout)
-    except json.JSONDecodeError as e:
-        raise _ConfluenceCliError(f"atlassian-cli did not return valid JSON: {e}") from e
-    # Confluence REST API shape: body.storage.value
+        import requests
+    except ImportError:
+        raise RuntimeError("requests required. pip install requests")
+
+    url = f"{base_url}/rest/api/content/{page_id}"
+    params = {"expand": "body.storage"}
+    # Confluence Cloud: Basic auth (email + API token). Token can be "email:api_token" or separate email + token.
+    if token.startswith("Bearer"):
+        headers = {"Authorization": token}
+        auth = None
+    elif ":" in token:
+        email_part, api_key = token.split(":", 1)
+        auth = (email_part, api_key)
+        headers = {}
+    elif email and token.startswith("ATATT"):
+        # Confluence Cloud: Atlassian API tokens (ATATT...) require Basic auth (email, token), not Bearer.
+        auth = (email, token)
+        headers = {}
+    else:
+        headers = {"Authorization": f"Bearer {token}"}
+        auth = None
+
+    resp = requests.get(url, params=params, headers=headers, auth=auth, timeout=30)
+    resp.raise_for_status()
+    data = resp.json()
     body = data.get("body") or {}
-    storage = body.get("storage") if isinstance(body, dict) else {}
-    value = storage.get("value") if isinstance(storage, dict) else None
-    if not value or not isinstance(value, str):
-        value = ""
-    if verbose and value:
-        print("[Confluence] Fetched page via atlassian-cli", file=sys.stderr)
-    return value or ""
+    storage = body.get("storage") or {}
+    return storage.get("value") or ""
 
 
 def _storage_to_text(html: str) -> str:
@@ -351,11 +372,11 @@ def _fetch_invent_sections(
     requirements_path: str | None = None,
     token: str | None = None,
     verbose: bool = False,
-) -> dict[str, str]:
+) -> dict[str, str] | None:
     """Search Invent repo for table sections (table_name:). requirements_path = path inside repo.
     token = from config phase_b.github.token or env (token_env). If no token and repo is GitHub,
     uses GitHub CLI (gh repo clone) when available so user can run `gh auth login` once instead.
-    Returns {table_name: content}."""
+    Returns {table_name: content} on success, or None if clone/fetch failed (no context written)."""
     def log(msg: str) -> None:
         if verbose:
             print(f"[Invent] {msg}", file=sys.stderr)
@@ -381,24 +402,24 @@ def _fetch_invent_sections(
                     if r.returncode != 0:
                         err = (r.stderr or r.stdout or "unknown").strip()
                         if "gh auth login" in err or "authentication" in err.lower():
-                            print("Error: GitHub clone failed. Install GitHub CLI and run: gh auth login", file=sys.stderr)
+                            print("Error: GitHub authentication failed. Please connect your GitHub account: run 'gh auth login' and retry.", file=sys.stderr)
                         else:
                             log(f"Clone failed: {err}")
-                        return out
+                        return None
                 else:
                     r = subprocess.run(["git", "clone", "--depth", "1", "--single-branch", repo_url, tmp], capture_output=True, text=True, timeout=60)
             else:
                 r = subprocess.run(["git", "clone", "--depth", "1", "--single-branch", repo_url, tmp], capture_output=True, text=True, timeout=60)
             if r.returncode != 0:
                 log(f"Clone failed: {r.stderr or r.stdout or 'unknown'}")
-                return out
+                return None
             log("Clone OK")
         except subprocess.TimeoutExpired:
             log("Clone timed out")
-            return out
+            return None
         except subprocess.CalledProcessError as e:
             log(f"Clone error: {e}")
-            return out
+            return None
         search_root = Path(tmp) / requirements_path.strip("/") if requirements_path else Path(tmp)
         if not search_root.exists() and requirements_path:
             # Try last path component (e.g. invent_internal_metadata) in case repo layout differs
