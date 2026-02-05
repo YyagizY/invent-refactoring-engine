@@ -8,7 +8,7 @@ alwaysApply: false
 
 **CRITICAL: Code must not change.** The script logic, structure, and every line of code must remain identical. Only comments may be changed or added. Do not add, remove, or modify any executable code.
 
-When the user runs `contextual_refactor path/to/pre_etl_script.py`, you must (1) run the context fetch for that script, (2) read the context file, (3) create the backup folder and move the original, (4) add semantic comments only using the context, and (5) write the commented script to the original path.
+When the user runs `contextual_refactor path/to/pre_etl_script.py`, you must (1) run the context fetch for that script, (2) read the context file, (3) read the existing script, (4) add semantic comments only using the context, and (5) write the commented script back to the same path (editing in place).
 
 ## Command Format
 
@@ -49,11 +49,9 @@ Read `.cursor/context/<script_stem>.md`. It contains:
 
 Use this to write comments that explain **what** and **why**, not to change any code.
 
-## Step 3: File operations
+## Step 3: Edit file in place
 
-1. **Create** the folder `contextual_refactor/` in the script's parent directory (e.g. `pre_etl/contextual_refactor/`).
-2. **Move** the original file to `contextual_refactor/<script_stem>_legacy.py` (e.g. `scope_legacy.py` for `scope.py`). Use the stem only: `critical_stock.py` → `critical_stock_legacy.py`.
-3. **Write** the version with semantic comments to the **original** path.
+**Edit the existing file directly.** Do not create backup folders or move files. Simply read the existing script, add semantic comments, and write it back to the same path.
 
 ## Step 4: Add comments only
 
@@ -72,10 +70,9 @@ When you receive `contextual_refactor path/to/script.py`:
 1. Run: `python .invent-refactoring-engine/scripts/fetch_context.py path/to/script.py` (from project root).
 2. Read `.cursor/context/<script_stem>.md`.
 3. Read the source file at the given path.
-4. Create `contextual_refactor/`, move original to `contextual_refactor/<script_stem>_legacy.py`.
-5. Add or update comments only; do not change any code.
-6. Write the commented version to the original script path.
-7. Report what comments were added.
+4. Add or update comments only; do not change any code.
+5. Write the commented version back to the same script path (edit in place).
+6. Report what comments were added.
 
 ### File output example
 
@@ -84,11 +81,11 @@ For `contextual_refactor rocks_extension/opal/pre_etl/scope.py`:
 ```
 BEFORE:
 rocks_extension/opal/pre_etl/
-└── scope.py
+└── scope.py                          # Original code without comments
 
 AFTER:
 rocks_extension/opal/pre_etl/
-├── scope.py                          # Same code + semantic comments
-└── contextual_refactor/
-    └── scope_legacy.py               # Original archived
+└── scope.py                          # Same code + semantic comments added
 ```
+
+**Note:** The file is edited in place. No backup folders or files are created.
