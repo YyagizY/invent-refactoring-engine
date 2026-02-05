@@ -3,13 +3,8 @@ Legacy vs refactored PreETL comparison utilities.
 
 This module is meant for local / ad-hoc validation that a structurally-refactored
 PreETL step produces identical output to its legacy counterpart for multiple
-Azure run ids (and derived run dates).
+feed run ids (and derived run dates).
 
-Before running this script, activate the customer virtualenv:
-
-    source <customer-name>-venv/bin/activate
-
-e.g. for aloyoga:  source aloyoga-venv/bin/activate
 """
 
 from __future__ import annotations
@@ -32,7 +27,7 @@ if not os.environ.get("JAVA_HOME"):
 if not os.environ.get("SPARK_LOCAL_IP"):
     os.environ["SPARK_LOCAL_IP"] = "127.0.0.1"
 
-from invent_local_env import spark, display, F
+from invent_local_env import spark, F
 
 # Script may live at repo/.invent-refactoring-engine/scripts/refin_comparison.py or repo/refin_comparison.py
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -123,9 +118,6 @@ def apply_local_env_defaults(
     spark_local_ip: Optional[str] = None,
 ) -> None:
     """
-    Apply the essential environment variables from the first cell of
-    `eggs/first_try.ipynb`, but only if they are not already set.
-
     Intentionally does NOT depend on python-dotenv.
     """
 

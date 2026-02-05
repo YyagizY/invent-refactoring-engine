@@ -84,3 +84,53 @@ git submodule update --remote .invent-refactoring-engine
 ```
 
 Or: `./.invent-refactoring-engine/update.sh`
+
+---
+
+## Tutorial: Using the Refactor Validator
+
+After you refactor a PreETL script (e.g. with `structural_refactor`), you can validate that the refactored code produces the same output as the legacy version over recent pipeline runs. The **refactor_validator** Cursor rule automates this: it runs the comparison for you and summarizes pass/fail and any failed run ids.
+
+### When to use it
+
+- After Phase A (structural refactor) to confirm the new script matches legacy output.
+- When you want a quick “did my refactor break anything?” check over the last N run ids.
+
+### How to invoke it
+
+In Cursor, ask the agent to run the validator with:
+
+```
+refactor_validator <script_name> [run_count]
+```
+
+- **script_name**: The PreETL script name (e.g. `cluster`, `goods_in_transit`, `asn`, `product`). Use the same name as in your `pre_etl/` path (e.g. `cluster.py` → `cluster`).
+- **run_count** (optional): How many recent run ids to compare. Default is **20** if you omit it.
+
+**Examples:**
+
+- `refactor_validator cluster` — compare last 20 run ids for `cluster`.
+- `refactor_validator cluster 10` — compare last 10 run ids.
+- `refactor_validator goods_in_transit 5` — compare last 5 run ids for `goods_in_transit`.
+
+### What the agent does
+
+The agent (following the rule in `.cursor/rules/refactor_validator.mdc`) will:
+
+1. **Run the comparison** from your project root: it activates your customer virtualenv (e.g. `aloyoga-venv`) and runs `refin_comparison.py` with your script name and `--max-runs <N>`.
+2. **Read the report** written to `eggs/comparison_report_<script_name>.txt`.
+3. **Return a short validation summary**: total runs, Passed/Failed, and a list of any failed run ids (with run_date and error if present).
+
+You get a concise “all passed” or “X run(s) failed” verdict without pasting the full report unless you ask for it.
+
+### Prerequisites
+
+- **Customer virtualenv** must exist and be activatable (e.g. `source aloyoga-venv/bin/activate`). The comparison script runs inside this environment.
+- **refin_comparison.py** and its dependencies (see `.invent-refactoring-engine/scripts/`) must be available; the script needs Azure/Spark access and config as described in the comparison script’s own docs.
+- **Legacy script** should be at `path/to/legacy/<script>_legacy.py` (as created by Phase A). Refactored script at the original path.
+
+### If something goes wrong
+
+- **“Azure CLI is not authenticated”** — run `az login` (and optionally `az account set`) before re-running.
+- **Missing venv or import errors** — ensure the customer venv is installed and activated; the agent will report the error and stop.
+- **Report file missing** — the agent will tell you and will not invent a summary; check that the comparison script completed and wrote to `eggs/comparison_report_<script_name>.txt`.
