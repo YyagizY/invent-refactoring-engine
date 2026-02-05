@@ -29,8 +29,9 @@ If you get "Permission denied": `chmod +x .invent-refactoring-engine/install.sh`
 
 ### Use in Cursor
 
-- **Confluence:** Uses [atlassian-cli](https://github.com/omar16100/atlassian-cli) only. Install it (e.g. `brew install omar16100/atlassian-cli/atlassian-cli`) and run `atlassian-cli auth login` once: `atlassian-cli auth login --profile <name> --base-url https://invent.atlassian.net --email <your@email> --token <api_token> --default`. No Confluence token env var is needed.
-- **GITHUB_TOKEN:** Optional. Used for private Invent repo when `phase_b.github.token` is not set. If you prefer not to use a token, install [GitHub CLI](https://cli.github.com/) and run `gh auth login` once; the script will then clone via `gh repo clone` and no token is needed.
+- **Structural refactor:** `structural_refactor path/to/pre_etl_script.py`
+- **Contextual refactor:** `contextual_refactor path/to/pre_etl_script.py`
+- **Validate:** `refactor_validator pre_etl_script` (or `refactor_validator pre_etl_script 10` for last 10 runs)
 
 ---
 
@@ -38,7 +39,9 @@ If you get "Permission denied": `chmod +x .invent-refactoring-engine/install.sh`
 
 ## Structural Refactor Agent (SRA)
 
-from the **project root**. Dependencies for the script: `pip install -r .invent-refactoring-engine/scripts/requirements.txt` (PyYAML).
+- Backs up original to `path/to/legacy/<script>_legacy.py`; writes refactored script to the original path.
+- Only the `main` method is modified; output table and behavior remain equivalent.
+- Enforces: linear flow (ingestion → variables → transforms → output), dead-code removal, style guide, join/alias cleanup, logical block spacing.
 
 ---
 
