@@ -1,14 +1,7 @@
 {
-  "phase_a": {
-    "style_guides": {
-      "invent_pyspark": "https://github.com/inventanalytics/pyspark-style-guide"
-    }
-  },
   "phase_b": {
     "confluence": {
       "base_url": "https://invent.atlassian.net/wiki",
-      "api_token": null,
-      "api_token_env": "CONFLUENCE_API_TOKEN",
       "clients": {
         "fivebelow": "https://invent.atlassian.net/wiki/spaces/FBR/pages/5900894244/Pre+ETL+Business+Logic",
         "aloyoga": "https://invent.atlassian.net/wiki/spaces/FBR/pages/5900894244/Pre+ETL+Business+Logic"
