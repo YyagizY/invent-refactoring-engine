@@ -46,17 +46,35 @@ If the refactoring engine is in a different location, use that path:
 python <path_to_engine>/scripts/fetch_context.py <script_path>
 ```
 
-This writes the context file to `.cursor/context/<script_stem>.md` (e.g. `.cursor/context/scope.md`). If the script fails (e.g. missing CONFLUENCE_API_TOKEN or config), report the error and stop. Do not add comments from the existing context file if it exists. If the failure is due to GitHub (clone/authentication), tell the user to connect their GitHub account first: run `gh auth login`, then retry.
+This writes the context file to `.cursor/context/<script_stem>.md` (e.g. `.cursor/context/scope.md`). 
 
-## Step 2: Read the context file
+**Error Handling:**
 
-Read `.cursor/context/<script_stem>.md`. It contains:
+1. **Check exit code**: If `fetch_context.py` exits with non-zero status, **STOP IMMEDIATELY**. Report the error and do not proceed with refactoring.
+2. **Verify context file exists**: Check that `.cursor/context/<script_stem>.md` was created. If missing, **STOP IMMEDIATELY** and report: "Context file was not created. Check API configuration and Confluence page access."
+3. **If the failure is due to GitHub** (clone/authentication), tell the user to connect their GitHub account first: run `gh auth login`, then retry.
+
+**Do NOT add comments from an existing context file** if the fetch failed. Only proceed if fresh context was successfully fetched.
+
+## Step 2: Validate and read the context file
+
+**Before reading, validate the context file:**
+
+1. **File exists**: Confirm `.cursor/context/<script_stem>.md` exists. If missing, **STOP** and report error.
+2. **Content validation**: Read the file and check:
+   - If the file is empty or contains only whitespace, **STOP IMMEDIATELY** and report: "Error: Confluence page is empty or not found. The context file contains no content."
+   - If the Pre-ETL Business Logic section shows "(No business logic section found.)" AND all input/output table sections show "(No definition found.)", this indicates the Confluence page is empty or not found. **STOP IMMEDIATELY** and report: "Error: Confluence page appears to be empty or not found. All sections show 'No definition found' or 'No business logic section found'. Please verify the Confluence page URL in config and ensure the page exists and has content."
+   - Only proceed if the file contains meaningful business logic or table definitions.
+
+**If validation passes, read the context file.** It contains:
 
 - **Pre-ETL Business Logic** for this script (e.g. scope)
 - **Output table** definition and column explanations
 - **Input tables** definitions and column explanations
 
 Use this to write comments that explain **what** and **why**, not to change any code.
+
+**If validation fails, report the error clearly and terminate without modifying the script.**
 
 ## Step 3: Edit file in place
 
@@ -76,12 +94,20 @@ If you cannot add a comment without changing code, do not make the change. When 
 
 When you receive `contextual_refactor path/to/script.py`:
 
-1. Run: `python .invent-refactoring-engine/scripts/fetch_context.py path/to/script.py` (from project root). If the fetch fails with a GitHub clone or auth error, tell the user to connect their GitHub account: run `gh auth login`, then retry.
-2. Read `.cursor/context/<script_stem>.md`.
-3. Read the source file at the given path.
+1. **Run fetch with error checking**: `python .invent-refactoring-engine/scripts/fetch_context.py path/to/script.py` (from project root).
+   - **Check exit code**: If non-zero, **STOP** and report the error.
+   - **Verify context file created**: If missing, **STOP** and report error.
+   - If the failure is due to GitHub (clone/authentication), tell the user to connect their GitHub account: run `gh auth login`, then retry.
+2. **Validate context file**: Read `.cursor/context/<script_stem>.md`.
+   - **Check if empty**: If file is empty or whitespace only, **STOP** and report: "Error: Confluence page is empty or not found."
+   - **Check for placeholder content**: If all sections show "(No definition found.)" or "(No business logic section found.)", **STOP** and report: "Error: Confluence page appears to be empty or not found. Please verify the Confluence page URL and ensure it has content."
+   - **If validation fails, terminate immediately** - do not proceed to step 3.
+3. **Only if validation passes**: Read the source file at the given path.
 4. Add or update comments only; do not change any code.
 5. Write the commented version back to the same script path (edit in place).
 6. Report what comments were added.
+
+**Error Handling**: If context file is empty or Confluence page is not found, immediately terminate and inform the user. Do not modify the script.
 
 ### File output example
 
@@ -98,3 +124,17 @@ rocks_extension/opal/pre_etl/
 ```
 
 **Note:** The file is edited in place. No backup folders or files are created.
+
+### Error handling example
+
+If Confluence page is empty or not found:
+
+```
+Error: Confluence page appears to be empty or not found.
+Reason: Context file contains only placeholder text ("No definition found" or "No business logic section found").
+Action: Refactoring aborted. Script was not modified.
+Please verify:
+1. The Confluence page URL in config/external-sources.json is correct
+2. The Confluence page exists and has content
+3. You have access to the Confluence page
+```
