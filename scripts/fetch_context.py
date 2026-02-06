@@ -150,6 +150,15 @@ def main() -> int:
         invent_sections = _fetch_invent_sections(
             invent_repo, output_table_name, input_table_names, requirements_path, github_token, verbose
         )
+        if invent_sections is None:
+            print(
+                "Error: Invent repo clone or fetch failed. No context file written. "
+                "Fix phase_b.github.repo in config (e.g. valid GitHub URL) or connect GitHub: run 'gh auth login', then retry.",
+                file=sys.stderr,
+            )
+            return 1
+    else:
+        invent_sections = {}
 
     # 7) Build context markdown
     context_md = _build_context_md(
@@ -160,6 +169,24 @@ def main() -> int:
         input_sections=input_sections,
         business_logic=business_logic,
     )
+
+    # 7.5) Validate context content
+    if not context_md.strip():
+        print("Error: Confluence page is empty or not found. The context file contains no content.", file=sys.stderr)
+        return 1
+
+    # Check for placeholder saturation (Business logic missing AND all tables missing definitions)
+    has_logic = bool(business_logic.strip())
+    has_tables = False
+    all_tables = [output_table_name] + input_table_names
+    for t in all_tables:
+        if invent_sections.get(t) or input_sections.get(t):
+            has_tables = True
+            break
+            
+    if not has_logic and not has_tables:
+        print("Error: Confluence page appears to be empty or not found. All sections show 'No definition found' or 'No business logic section found'. Please verify the Confluence page URL in config and ensure the page exists and has content.", file=sys.stderr)
+        return 1
 
     # 8) Write .cursor/context/<stem>.md
     context_dir = project_root / ".cursor" / "context"
@@ -345,11 +372,11 @@ def _fetch_invent_sections(
     requirements_path: str | None = None,
     token: str | None = None,
     verbose: bool = False,
-) -> dict[str, str]:
+) -> dict[str, str] | None:
     """Search Invent repo for table sections (table_name:). requirements_path = path inside repo.
     token = from config phase_b.github.token or env (token_env). If no token and repo is GitHub,
     uses GitHub CLI (gh repo clone) when available so user can run `gh auth login` once instead.
-    Returns {table_name: content}."""
+    Returns {table_name: content} on success, or None if clone/fetch failed (no context written)."""
     def log(msg: str) -> None:
         if verbose:
             print(f"[Invent] {msg}", file=sys.stderr)
@@ -375,24 +402,24 @@ def _fetch_invent_sections(
                     if r.returncode != 0:
                         err = (r.stderr or r.stdout or "unknown").strip()
                         if "gh auth login" in err or "authentication" in err.lower():
-                            print("Error: GitHub clone failed. Install GitHub CLI and run: gh auth login", file=sys.stderr)
+                            print("Error: GitHub authentication failed. Please connect your GitHub account: run 'gh auth login' and retry.", file=sys.stderr)
                         else:
                             log(f"Clone failed: {err}")
-                        return out
+                        return None
                 else:
                     r = subprocess.run(["git", "clone", "--depth", "1", "--single-branch", repo_url, tmp], capture_output=True, text=True, timeout=60)
             else:
                 r = subprocess.run(["git", "clone", "--depth", "1", "--single-branch", repo_url, tmp], capture_output=True, text=True, timeout=60)
             if r.returncode != 0:
                 log(f"Clone failed: {r.stderr or r.stdout or 'unknown'}")
-                return out
+                return None
             log("Clone OK")
         except subprocess.TimeoutExpired:
             log("Clone timed out")
-            return out
+            return None
         except subprocess.CalledProcessError as e:
             log(f"Clone error: {e}")
-            return out
+            return None
         search_root = Path(tmp) / requirements_path.strip("/") if requirements_path else Path(tmp)
         if not search_root.exists() and requirements_path:
             # Try last path component (e.g. invent_internal_metadata) in case repo layout differs
